@@ -10,18 +10,7 @@ public class MulticastReceiver extends Thread {
         socket = new MulticastSocket(4446);
         InetAddress group = InetAddress.getByName("230.0.0.0");
         socket.joinGroup(group);
-        while (true) {
-            DatagramPacket packet = new DatagramPacket(buf, buf.length);
-            socket.receive(packet);
-            String received = new String(
-                    packet.getData(), 0, packet.getLength());
-            System.out.println("Got message " + received);
-            if ("end".equals(received)) {
-                break;
-            }
-        }
-        socket.leaveGroup(group);
-        socket.close();
+        Rover.check(socket, group, buf);
     }
 
     public static void main(String[] args) throws Exception{

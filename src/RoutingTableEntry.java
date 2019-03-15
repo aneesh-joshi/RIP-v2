@@ -1,6 +1,6 @@
 /**
  * Class to keep track of routing table entries.
- * Should be passed to a RIPPacket class which will convert it to a byte format
+ * Should be passed to a RIPPacketUtil class which will convert it to a byte format
  */
 public class RoutingTableEntry {
     String ipAddress;

@@ -1,25 +1,23 @@
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Queue;
 
 /**
- * Represent a RIP packet.
- * When prompted, it should return a byte format to be encoded.
+ * A utility for byte encoding and decoding RIP packets.
  */
-public class RIPPacket {
+public class RIPPacketUtil {
     static final byte VERSION = 2; // We will only support version 2
 
     /**
-     * Returns a RIPPacket
+     * Returns a RIPPacketUtil
      *
      * @param command Either a request(0) or response(1)
      * @param entries an array of routing table entries to be filled
      */
-    static byte[] getRIPPacket(byte command, RoutingTableEntry[] entries) {
-        byte[] ripPacket = new byte[4 * 2 + entries.length * 16]; //  4 * 2 bytes for the header
+    static byte[] getRIPPacket(byte command, List<RoutingTableEntry> entries) {
+        System.out.println(entries.size());
+        byte[] ripPacket = new byte[4 * 2 + entries.size() * 16]; //  4 * 2 bytes for the header
         ripPacket[0] = command;
         ripPacket[1] = VERSION;
         // skip 2 to keep empty
@@ -44,18 +42,19 @@ public class RIPPacket {
             ripPacket[packetOffset] = entry.metric;
             packetOffset += 1;
         }
-
-        assert packetOffset == entries.length * 16 + 4 * 2;
         return ripPacket;
     }
 
-    public static List<RoutingTableEntry> decodeRIPPacket(byte[] packet){
-        int totalEntries = (packet.length - 2*4) / 16;
-        List<RoutingTableEntry>  list = new ArrayList<>(totalEntries);
+    public static List<RoutingTableEntry> decodeRIPPacket(byte[] packet, int packetLength) {
+
+        int totalEntries = (packetLength - 8) / 16;
+
+        System.out.println("Total entries are " + totalEntries);
+        List<RoutingTableEntry> list = new ArrayList<>();
         RoutingTableEntry entry;
         int offset = 8;
 
-        for(int count = 0; count < totalEntries; count++){
+        for (int count = 0; count < totalEntries; count++) {
             entry = new RoutingTableEntry();
             entry.ipAddress = getIpFromPacket(packet, offset);
             offset += 4;
@@ -73,19 +72,20 @@ public class RIPPacket {
     }
 
 
-    private static String getIpFromPacket(byte[] packet, int offset){
+    private static String getIpFromPacket(byte[] packet, int offset) {
         StringBuilder res = new StringBuilder();
-        for(int i=0; i<4; i++){
-            res.append(getNextNBytes(packet, offset + i, 1) + (i==3?"":"."));
+        for (int i = 0; i < 4; i++) {
+            res.append(getNextNBytes(packet, offset + i, 1) + (i == 3 ? "" : "."));
         }
         return res.toString();
     }
 
     /**
      * Returns a string representation of the number made on N bytes.
+     *
      * @param packet the packet array
      * @param offset the position to start reading from
-     * @param N the number of bytes to consider
+     * @param N      the number of bytes to consider
      * @return string representation of the number made on N bytes
      */
     private static String getNextNBytes(byte[] packet, int offset, int N) {
@@ -98,9 +98,10 @@ public class RIPPacket {
 
     /**
      * Returns a string representation of the number made on N bytes in the 0x fromat
+     *
      * @param packet the packet array
      * @param offset the position to start reading from
-     * @param N the number of bytes to consider
+     * @param N      the number of bytes to consider
      * @return string representation of the number made on N bytes in the 0x format
      */
     private static String getNextNBytesHex(byte[] packet, int offset, int N) {
@@ -127,22 +128,25 @@ public class RIPPacket {
     }
 
     public static void main(String[] args) {
+        // Test for RIP packet util
         RoutingTableEntry packet = new RoutingTableEntry("255.255.255.255",
                 (byte) 32, "255.0.255.0", (byte) 15);
 
         RoutingTableEntry packet1 = new RoutingTableEntry("123.221.1.55",
                 (byte) 11, "1.0.1.1", (byte) 29);
-        RoutingTableEntry[] routingTableEntries = new RoutingTableEntry[]{packet, packet1};
+        List<RoutingTableEntry> routingTableEntries = new ArrayList<>();
+        routingTableEntries.add(packet);
+        routingTableEntries.add(packet1);
         byte[] ripByteRepresentation = getRIPPacket((byte) 1, routingTableEntries);
 
         printPacket(ripByteRepresentation);
 
-        System.out.println(decodeRIPPacket(ripByteRepresentation));
+        System.out.println(decodeRIPPacket(ripByteRepresentation, ripByteRepresentation.length));
     }
 
     private static void printPacket(byte[] ripByteRepresentation) {
         for (int i = 0; i < ripByteRepresentation.length; i += 1) {
-            System.out.printf("%02x" + ((i + 1) % 4 == 0 ? "\n" : "  -- "), ripByteRepresentation[i]);// ));
+            System.out.printf("%02x" + ((i + 1) % 4 == 0 ? "\n" : "  -- "), ripByteRepresentation[i]);
         }
     }
 }
