@@ -10,7 +10,7 @@ public class MulticastPublisher {
 
     public void multicast(String multicastMessage) throws IOException {
         socket = new DatagramSocket();
-        group = InetAddress.getByName("230.0.0.0");
+        group = InetAddress.getByName("233.33.33.33");
         buf = multicastMessage.getBytes();
 
         DatagramPacket packet

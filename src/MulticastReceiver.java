@@ -10,7 +10,7 @@ public class MulticastReceiver extends Thread {
         socket = new MulticastSocket(4446);
         InetAddress group = InetAddress.getByName("230.0.0.0");
         socket.joinGroup(group);
-        Rover.check(socket, group, buf);
+//        Rover.check(socket, group, buf);
     }
 
     public static void main(String[] args) throws Exception{

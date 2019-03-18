@@ -1,12 +1,14 @@
+import java.net.InetAddress;
+
 /**
  * Class to keep track of routing table entries.
  * Should be passed to a RIPPacketUtil class which will convert it to a byte format
  */
-public class RoutingTableEntry {
-    String ipAddress;
+public class RoutingTableEntry{
+    InetAddress ipAddress;
     byte subnetMask; // I chose to keep it as byte since it's easier to form the packet and all valid
                      // entries will be in the range. Same for metric.
-    String nextHop;
+    InetAddress nextHop;
     byte metric;
 
     /**
@@ -18,13 +20,16 @@ public class RoutingTableEntry {
      *                   the destination specified by this route entry should be forwarded
      * @param metric     total cost of getting the datagram from host to destination
      */
-    RoutingTableEntry(String ipAddress, byte subnetMask, String nextHop, byte metric) {
+    RoutingTableEntry(InetAddress ipAddress, byte subnetMask, InetAddress nextHop, byte metric) {
         this.ipAddress = ipAddress;
         this.subnetMask = subnetMask;
         this.nextHop = nextHop;
         this.metric = metric;
     }
 
+    /**
+     * Empty constructor which allows manual setting of member varaibles.
+     */
     RoutingTableEntry(){
 
     }
@@ -40,5 +45,24 @@ public class RoutingTableEntry {
         res.append("************\n");
 
         return res.toString();
+    }
+
+    @Override
+    public boolean equals(Object otherObject) {
+        if(!(otherObject instanceof RoutingTableEntry)){
+            return false;
+        }
+        RoutingTableEntry other = (RoutingTableEntry)otherObject;
+        return this.metric == other.metric && this.nextHop.equals(other.nextHop) &&
+                this.ipAddress.equals(other.ipAddress) && this.subnetMask == other.subnetMask;
+    }
+
+    /**
+     * Returns the same hashcode for "equal" objects
+     * @return this object's hashcode
+     */
+    @Override
+    public int hashCode(){
+        return subnetMask * 100 + (int)Math.pow(metric, 3) + ipAddress.hashCode()*nextHop.hashCode();
     }
 }
