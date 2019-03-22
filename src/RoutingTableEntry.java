@@ -39,9 +39,9 @@ public class RoutingTableEntry{
 
         StringBuilder res = new StringBuilder();
         res.append("\n");
-        res.append(ipAddress).append("\\").append(subnetMask).append(" | \t");
-        res.append(nextHop + " | \t");
-        res.append(metric + " | \t");
+        res.append(ipAddress).append("/").append(subnetMask).append(" \t");
+        res.append(nextHop + " \t");
+        res.append(metric + " \t");
 //        res.append("IP Address : " + ipAddress + "\t");
 //        res.append("Subnet Mask : " + subnetMask + "\t");
 //        res.append("Next Hop : " + nextHop + "\t");

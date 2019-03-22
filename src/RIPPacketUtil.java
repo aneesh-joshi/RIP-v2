@@ -17,12 +17,14 @@ public class RIPPacketUtil {
      * @param command Either a request(0) or response(1)
      * @param entries an array of routing table entries to be filled
      */
-    static byte[] getRIPPacket(byte command, Map<InetAddress, RoutingTableEntry> entries) {
+    static byte[] getRIPPacket(byte command, byte roverId, Map<InetAddress, RoutingTableEntry> entries) {
 
         byte[] ripPacket = new byte[4 * 2 + entries.size() * 16]; //  4 * 2 bytes for the header
         ripPacket[0] = command;
         ripPacket[1] = VERSION;
-        // skip 2 to keep empty
+        // store the rover id in this byte. It's not used either way.
+        ripPacket[2] = roverId;
+        // skip 1 to keep empty
         ripPacket[4] = 0; // TODO check
         ripPacket[5] = 2; // 2 for IP
         // keep route tag as empty as we won't support anything but RIP
@@ -48,7 +50,6 @@ public class RIPPacketUtil {
     }
 
     public static List<RoutingTableEntry> decodeRIPPacket(byte[] packet, int packetLength) throws UnknownHostException{
-
         int totalEntries = (packetLength - 8) / 16;
         List<RoutingTableEntry> list = new ArrayList<>();
         RoutingTableEntry entry;
@@ -116,7 +117,7 @@ public class RIPPacketUtil {
         Map<InetAddress, RoutingTableEntry> routingTableEntries = new HashMap<>();
         routingTableEntries.put(InetAddress.getByName("255.255.255.255"), packet);
         routingTableEntries.put(InetAddress.getByName("123.221.1.55"), packet1);
-        byte[] ripByteRepresentation = getRIPPacket((byte) 1, routingTableEntries);
+        byte[] ripByteRepresentation = getRIPPacket((byte) 1, (byte)12, routingTableEntries);
 
         printPacket(ripByteRepresentation);
 
