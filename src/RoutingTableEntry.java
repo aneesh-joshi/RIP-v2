@@ -36,13 +36,17 @@ public class RoutingTableEntry{
 
     @Override
     public String toString(){
+
         StringBuilder res = new StringBuilder();
-        res.append("\n------------\n");
-        res.append("IP Address : " + ipAddress + "\n");
-        res.append("Subnet Mask : " + subnetMask + "\n");
-        res.append("Next Hop : " + nextHop + "\n");
-        res.append("Metric : " + metric + "\n");
-        res.append("************\n");
+        res.append("\n");
+        res.append(ipAddress + " | \t");
+        res.append(subnetMask + " | \t");
+        res.append(nextHop + " | \t");
+        res.append(metric + " | \t");
+//        res.append("IP Address : " + ipAddress + "\t");
+//        res.append("Subnet Mask : " + subnetMask + "\t");
+//        res.append("Next Hop : " + nextHop + "\t");
+//        res.append("Metric : " + metric + "\t");
 
         return res.toString();
     }

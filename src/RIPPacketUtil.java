@@ -1,7 +1,9 @@
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A utility for byte encoding and decoding RIP packets.
@@ -15,8 +17,8 @@ public class RIPPacketUtil {
      * @param command Either a request(0) or response(1)
      * @param entries an array of routing table entries to be filled
      */
-    static byte[] getRIPPacket(byte command, List<RoutingTableEntry> entries) {
-//        System.out.println(entries.size());
+    static byte[] getRIPPacket(byte command, Map<InetAddress, RoutingTableEntry> entries) {
+
         byte[] ripPacket = new byte[4 * 2 + entries.size() * 16]; //  4 * 2 bytes for the header
         ripPacket[0] = command;
         ripPacket[1] = VERSION;
@@ -26,7 +28,7 @@ public class RIPPacketUtil {
         // keep route tag as empty as we won't support anything but RIP
 
         int packetOffset = 8;
-        for (RoutingTableEntry entry : entries) {
+        for (RoutingTableEntry entry : entries.values()) {
             // Add IP entry
             packetOffset = addIpAddress(ripPacket, packetOffset, entry.ipAddress, entry);
             packetOffset += 3; // skip the first 3 bytes since they will be
@@ -48,8 +50,6 @@ public class RIPPacketUtil {
     public static List<RoutingTableEntry> decodeRIPPacket(byte[] packet, int packetLength) throws UnknownHostException{
 
         int totalEntries = (packetLength - 8) / 16;
-
-        System.out.println("Total entries are " + totalEntries);
         List<RoutingTableEntry> list = new ArrayList<>();
         RoutingTableEntry entry;
         int offset = 8;
@@ -113,9 +113,9 @@ public class RIPPacketUtil {
         RoutingTableEntry packet1 = new RoutingTableEntry(InetAddress.getByName("123.221.1.55"),
                 (byte) 11, InetAddress.getByName("1.0.1.1"), (byte) 29);
 
-        List<RoutingTableEntry> routingTableEntries = new ArrayList<>();
-        routingTableEntries.add(packet);
-        routingTableEntries.add(packet1);
+        Map<InetAddress, RoutingTableEntry> routingTableEntries = new HashMap<>();
+        routingTableEntries.put(InetAddress.getByName("255.255.255.255"), packet);
+        routingTableEntries.put(InetAddress.getByName("123.221.1.55"), packet1);
         byte[] ripByteRepresentation = getRIPPacket((byte) 1, routingTableEntries);
 
         printPacket(ripByteRepresentation);
