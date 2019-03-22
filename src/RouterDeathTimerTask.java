@@ -1,3 +1,4 @@
+import java.io.IOException;
 import java.net.InetAddress;
 import java.util.TimerTask;
 
@@ -12,6 +13,11 @@ public class RouterDeathTimerTask extends TimerTask {
 
     @Override
     public void run() {
-        rover.registerNeighborDeath(routerIp);
+        try {
+            rover.registerNeighborDeath(routerIp);
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.exit(42);
+        }
     }
 }

@@ -1,6 +1,7 @@
 import java.io.IOException;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
@@ -35,7 +36,7 @@ public class Rover {
      */
     Rover(int id) throws IOException {
         this.id = id;
-        routingTable = new HashMap<>();
+        routingTable = new ConcurrentHashMap<>();
         neighborRoutingTableEntries = new HashMap<>();
         neighborTimers = new HashMap<>();
 
@@ -85,9 +86,8 @@ public class Rover {
         // Cache the entries of neighbors to recalculate the path when a router dies
         neighborRoutingTableEntries.put(sourceAddress, newEntries);
 
-//        if (!routingTable.containsKey(sourceAddress)) {
-            routingTable.put(sourceAddress, new RoutingTableEntry(sourceAddress, (byte) 24, sourceAddress, (byte) 1)); // TODO Fix subnet
-//        }
+        routingTable.put(sourceAddress, new RoutingTableEntry(sourceAddress, (byte) 24, sourceAddress, (byte) 1)); // TODO Fix subnet
+
 
         // restart the timer task since we have received the heart beat
         if(neighborTimers.containsKey(sourceAddress)) {
@@ -106,22 +106,7 @@ public class Rover {
             }
 
             // If we've never seen the entry's IP before, we immediately add it
-            if (!routingTable.containsKey(entry.ipAddress)) {
-                routingTable.put(entry.ipAddress, new RoutingTableEntry(entry.ipAddress,
-                        entry.subnetMask,
-                        sourceAddress,
-                        (byte) ((1 + entry.metric) >= INFINITY ? INFINITY : 1 + entry.metric)));
-            }
-            // If the entry is this tables next hop, we will trust it
-            // Or if the entry is shorter, we update our entry
-            else if(routingTable.get(entry.ipAddress).nextHop.equals(sourceAddress) ||
-                    routingTable.get(entry.ipAddress).metric > 1 + entry.metric){
-
-                routingTable.get(entry.ipAddress).metric =
-                                (byte) ((1 + entry.metric) >= INFINITY ? INFINITY : 1 + entry.metric);
-                routingTable.get(entry.ipAddress).nextHop = sourceAddress;
-                routingTable.get(entry.ipAddress).subnetMask = entry.subnetMask;
-            }
+            updateTableFromEntries(sourceAddress, entry);
         }
     }
 
@@ -149,18 +134,59 @@ public class Rover {
 
     /**
      * Called by RouterDeathTimerTask object when
-     * @param roverIp
+     * @param deadRoverIp
      */
-    void registerNeighborDeath(InetAddress roverIp){
-        LOGGER.info(roverIp + " just died :(\n\n\n");
-        neighborTimers.get(roverIp).cancel();
-        routingTable.get(roverIp).metric = INFINITY;
+    void registerNeighborDeath(InetAddress deadRoverIp) throws IOException{
+        LOGGER.info(deadRoverIp + " just died :(\n\n\n");
+        neighborTimers.get(deadRoverIp).cancel();
+        routingTable.get(deadRoverIp).metric = INFINITY;
+
         for(InetAddress inetAddress: routingTable.keySet()){
-            if(routingTable.get(inetAddress).nextHop.equals(roverIp)){
+            if(routingTable.get(inetAddress).nextHop.equals(deadRoverIp)){
                 routingTable.get(inetAddress).metric = INFINITY;
             }
         }
 
+//        neighborRoutingTableEntries.remove(deadRoverIp);
+//        for(InetAddress neighborIp: neighborRoutingTableEntries.keySet()){
+//            for (RoutingTableEntry entry : neighborRoutingTableEntries.get(neighborIp)) {
+//                if (entry.ipAddress.equals(myAddress) ||
+//                        entry.ipAddress.equals(deadRoverIp) ||
+//                        entry.nextHop.equals(myAddress) ||
+//                        entry.nextHop.equals(deadRoverIp)) {
+//                    continue;
+//                }
+//
+//
+//                routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) 24, neighborIp, (byte) 1)); // TODO Fix subnet
+//                // If we've never seen the entry's IP before, we immediately add it
+//                updateTableFromEntries(neighborIp, entry);
+//            }
+//        }
+
+
+        sendRIPUpdate();
+
+    }
+
+    private void updateTableFromEntries(InetAddress neighborIp, RoutingTableEntry entry) {
+        int entryVal = entry.nextHop.equals(myAddress)?INFINITY:entry.metric;
+        if (!routingTable.containsKey(entry.ipAddress)) {
+            routingTable.put(entry.ipAddress, new RoutingTableEntry(entry.ipAddress,
+                    entry.subnetMask,
+                    neighborIp,
+                    (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal)));
+        }
+        // If the entry is this tables next hop, we will trust it
+        // Or if the entry is shorter, we update our entry
+        else if(routingTable.get(entry.ipAddress).nextHop.equals(neighborIp) ||
+                routingTable.get(entry.ipAddress).metric > 1 + entryVal){
+
+            routingTable.get(entry.ipAddress).metric =
+                    (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal);
+            routingTable.get(entry.ipAddress).nextHop = neighborIp;
+            routingTable.get(entry.ipAddress).subnetMask = entry.subnetMask;
+        }
     }
 
     /**
