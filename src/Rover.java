@@ -17,12 +17,12 @@ public class Rover {
     private Map<InetAddress, Timer> neighborTimers;
     private TimerTask timerTask;
     private InetAddress myAddress;
+    private int multicastPort;
+
 
 
     private final static Logger LOGGER = Logger.getLogger("ROVER");
-    private final static String MULTICAST_ADDRESS = "230.0.0.0";
     private final static int LISTEN_WINDOW = 1024,
-                            MULTICAST_PORT = 4446,
                             ROUTE_UPDATE_TIME = 5,
                             ROUTE_DELAY_TIME = 2,
                             ROVER_OFFLINE_TIME_LIMIT = 10,
@@ -36,16 +36,17 @@ public class Rover {
      *
      * @param id
      */
-    Rover(byte id) throws IOException {
+    Rover(byte id, int multicastPort, InetAddress multicastIP) throws IOException {
         this.id = id;
+        this.multicastPort = multicastPort;
         routingTable = new ConcurrentHashMap<>();
         neighborRoutingTableEntries = new HashMap<>();
         neighborTimers = new HashMap<>();
 
         myAddress = InetAddress.getLocalHost(); // TODO stop relying on getLocalHost()
         LOGGER.info("Rover: " + id + " has IP address of " + myAddress);
-        socket = new MulticastSocket(MULTICAST_PORT);
-        group = InetAddress.getByName(MULTICAST_ADDRESS);
+        socket = new MulticastSocket(multicastPort);
+        group = multicastIP;
         socket.joinGroup(group);
 
         timerTask = new TimerTask() {
@@ -232,12 +233,13 @@ public class Rover {
      */
     private void multicast(byte[] buffer) throws IOException { // TODO obfs
         DatagramPacket packet
-                = new DatagramPacket(buffer, buffer.length, group, MULTICAST_PORT);
+                = new DatagramPacket(buffer, buffer.length, group, multicastPort);
         socket.send(packet);
     }
 
 
     public static void main(String[] args) throws IOException {
-        new Rover(Byte.parseByte(args[0]));
+        ArgumentParser argsParser = new ArgumentParser(args);
+        new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress);
     }
 }
