@@ -43,7 +43,8 @@ public class Rover {
         neighborRoutingTableEntries = new HashMap<>();
         neighborTimers = new HashMap<>();
 
-        myAddress = InetAddress.getLocalHost(); // TODO stop relying on getLocalHost()
+        myAddress = getMyInetAddress();
+
         LOGGER.info("Rover: " + id + " has IP address of " + myAddress);
         socket = new MulticastSocket(multicastPort);
         group = multicastIP;
@@ -87,7 +88,6 @@ public class Rover {
             return;
         }
 
-//        System.out.println("RIP COMMAND \n\n\n" + ripCommand);
         boolean updateHappened = false;
 
         // Cache the entries of neighbors to recalculate the path when a router dies
@@ -129,6 +129,18 @@ public class Rover {
     }
 
     /**
+     * Ping Google's DNS server in order to get your own IP address on the correct interface
+     * @return this machine's IP on the outgoing interface
+     */
+    private InetAddress getMyInetAddress()throws IOException{
+
+        DatagramSocket tempSocket = new DatagramSocket();
+        tempSocket.connect(InetAddress.getByName("8.8.8.8"), 20800);
+        return tempSocket.getLocalAddress();
+    }
+
+
+    /**
      * Returns a neat representation of the routing table
      * @return a neat representation of the routing table
      */
@@ -157,8 +169,6 @@ public class Rover {
             List<RoutingTableEntry> entries = RIPPacketUtil.decodeRIPPacket(packet.getData(), packet.getLength());
             updateEntries(packet.getAddress(), packet.getData()[2], packet.getData()[0], entries);
         }
-//        socket.leaveGroup(group);
-//        socket.close();
     }
 
     /**
@@ -227,11 +237,11 @@ public class Rover {
     /**
      * Mulicasts the given byte over the network
      * <p>
-     * Note: I am not closing the socket since it is intended to be used often. TODO check
+     * Note: I am not closing the socket since it is intended to be used often.
      *
      * @param buffer packet to be sent
      */
-    private void multicast(byte[] buffer) throws IOException { // TODO obfs
+    private void multicast(byte[] buffer) throws IOException {
         DatagramPacket packet
                 = new DatagramPacket(buffer, buffer.length, group, multicastPort);
         socket.send(packet);
@@ -240,6 +250,8 @@ public class Rover {
 
     public static void main(String[] args) throws IOException {
         ArgumentParser argsParser = new ArgumentParser(args);
-        new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress);
+        if(argsParser.success) {
+            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress);
+        }
     }
 }

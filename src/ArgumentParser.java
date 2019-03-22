@@ -1,6 +1,5 @@
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.regex.Pattern;
 
 /**
  * Utility class to parse all the arguments
@@ -9,8 +8,9 @@ import java.util.regex.Pattern;
 class ArgumentParser {
     // Set the default values in case it is not specified by the user
     InetAddress multicastAddress = InetAddress.getByName("233.0.0.0");
-    int multicastPort = 520;
+    int multicastPort = 5200;
     byte roverId = 10;
+    boolean success=false;
 
     /**
      * Constructs the argument parser object using the arguments which are
@@ -40,7 +40,7 @@ class ArgumentParser {
                         index += 2;
                         break;
                     case "-m":
-                    case "multicastIp":
+                    case "--multicastIp":
                         multicastAddress = InetAddress.getByName(args[index + 1]);
                         index += 2;
                         break;
@@ -50,11 +50,11 @@ class ArgumentParser {
                         index += 2;
                         break;
                     default:
-                            throw new IllegalArgumentException("You've probably thrown an Illegal exception. " +
+                            throw new IllegalArgumentException("You've probably provided an Illegal exception. " +
                                     "Please run `java Rover --help` for the correct options");
                 }
             }
-
+            success = true;
         }
     }
 
