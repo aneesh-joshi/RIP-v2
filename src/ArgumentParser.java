@@ -58,6 +58,9 @@ class ArgumentParser {
         }
     }
 
+    /**
+     * Displays the help in case an incorrect argument list is passed
+     */
     void displayHelp(){
         System.out.println("DESCRIPTION :\n Initializes a Rover on a given multicast ip, port and with a given id\n" +
                 "USAGE :\n " +

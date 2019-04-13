@@ -1,0 +1,7 @@
+out/
+idea/
+*iml
+
+# for docker created files (?)
+.bash_history
+.viminfo

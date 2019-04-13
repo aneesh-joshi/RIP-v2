@@ -28,28 +28,33 @@ public class RoutingTableEntry{
     }
 
     /**
-     * Empty constructor which allows manual setting of member varaibles.
+     * Empty constructor which allows manual setting of member variables.
      */
     RoutingTableEntry(){
 
     }
 
+    /**
+     * Returns a string representation of the routing table entry
+     * @return string representation of the routing table entry
+     */
     @Override
     public String toString(){
 
         StringBuilder res = new StringBuilder();
-        res.append("\n");
-        res.append(ipAddress).append("/").append(subnetMask).append(" \t");
-        res.append(nextHop + " \t");
+        res.append(ipAddress.toString().substring(1)).append("/").append(subnetMask).append(" \t");
+        res.append(nextHop.toString().substring(1) + " \t");
         res.append(metric + " \t");
-//        res.append("IP Address : " + ipAddress + "\t");
-//        res.append("Subnet Mask : " + subnetMask + "\t");
-//        res.append("Next Hop : " + nextHop + "\t");
-//        res.append("Metric : " + metric + "\t");
+
 
         return res.toString();
     }
 
+    /**
+     * Checks whether 2 entries are the same.
+     * @param otherObject the object to check equality with
+     * @return true if the other object is equal to this one, false otherwise
+     */
     @Override
     public boolean equals(Object otherObject) {
         if(!(otherObject instanceof RoutingTableEntry)){

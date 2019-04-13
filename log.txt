@@ -1,0 +1,3 @@
+docker run -it -v /home/aneeshj/RIT/Sem2/FCN/RIP2:/root/  fcn_docker /bin/bash
+
+docker run -it -v /home/aneeshj/RIT/Sem2/FCN/RIP2:/root/  fcn_docker /bin/bash

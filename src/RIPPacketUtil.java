@@ -32,14 +32,14 @@ public class RIPPacketUtil {
         int packetOffset = 8;
         for (RoutingTableEntry entry : entries.values()) {
             // Add IP entry
-            packetOffset = addIpAddress(ripPacket, packetOffset, entry.ipAddress, entry);
+            packetOffset = addIpAddress(ripPacket, packetOffset, entry.ipAddress);
             packetOffset += 3; // skip the first 3 bytes since they will be
             // 0 and the subnet mask will at max be 32
 
             ripPacket[packetOffset] = entry.subnetMask;
             packetOffset += 1;
 
-            packetOffset = addIpAddress(ripPacket, packetOffset, entry.nextHop, entry);
+            packetOffset = addIpAddress(ripPacket, packetOffset, entry.nextHop);
 
             packetOffset += 3; // skip the first 3 bytes since they will be
             // 0 and the metric will at max be 15
@@ -49,7 +49,15 @@ public class RIPPacketUtil {
         return ripPacket;
     }
 
-    public static List<RoutingTableEntry> decodeRIPPacket(byte[] packet, int packetLength) throws UnknownHostException{
+    /**
+     * Decode the byte representation of a string into a list of routing table entries
+     *
+     * @param packet       the byte array representing the packet
+     * @param packetLength the length of the payload in the packet
+     * @return a list of routing table entries
+     * @throws UnknownHostException
+     */
+    public static List<RoutingTableEntry> decodeRIPPacket(byte[] packet, int packetLength) throws UnknownHostException {
         int totalEntries = (packetLength - 8) / 16;
         List<RoutingTableEntry> list = new ArrayList<>();
         RoutingTableEntry entry;
@@ -72,8 +80,14 @@ public class RIPPacketUtil {
         return list;
     }
 
-
-    private static InetAddress getIpFromPacket(byte[] packet, int offset) throws UnknownHostException{
+    /**
+     * Returns the IP address as extracted from the packet
+     * @param packet the byte array representing the packet
+     * @param offset the offset from which to check
+     * @return the IP starting from the given offset
+     * @throws UnknownHostException
+     */
+    private static InetAddress getIpFromPacket(byte[] packet, int offset) throws UnknownHostException {
         StringBuilder res = new StringBuilder();
         for (int i = 0; i < 4; i++) {
             res.append(getNextNBytes(packet, offset + i, 1) + (i == 3 ? "" : "."));
@@ -97,8 +111,14 @@ public class RIPPacketUtil {
         return "" + res;
     }
 
-
-    private static int addIpAddress(byte[] ripPacket, int packetOffset, InetAddress ipToAdd, RoutingTableEntry entry) {
+    /**
+     * Adds the ip to the packet
+     * @param ripPacket the rip packet
+     * @param packetOffset the offset from which to start filling
+     * @param ipToAdd the ip which has to be added
+     * @return
+     */
+    private static int addIpAddress(byte[] ripPacket, int packetOffset, InetAddress ipToAdd) {
         for (byte ipSubPart : ipToAdd.getAddress()) {
             ripPacket[packetOffset] = ipSubPart;
             packetOffset += 1;
@@ -106,6 +126,21 @@ public class RIPPacketUtil {
         return packetOffset;
     }
 
+    /**
+     * Prints the hex dump of the packet
+     * @param ripByteRepresentation the byte representation of the rip packet
+     */
+    private static void printPacket(byte[] ripByteRepresentation) {
+        for (int i = 0; i < ripByteRepresentation.length; i += 1) {
+            System.out.printf("%02x" + ((i + 1) % 4 == 0 ? "\n" : "  -- "), ripByteRepresentation[i]);
+        }
+    }
+
+    /**
+     * Main function which tests the utility
+     * @param args arguments passed to the main function
+     * @throws Exception
+     */
     public static void main(String[] args) throws Exception {
         // Test for RIP packet util
         RoutingTableEntry packet = new RoutingTableEntry(InetAddress.getByName("255.255.255.255"),
@@ -117,16 +152,11 @@ public class RIPPacketUtil {
         Map<InetAddress, RoutingTableEntry> routingTableEntries = new HashMap<>();
         routingTableEntries.put(InetAddress.getByName("255.255.255.255"), packet);
         routingTableEntries.put(InetAddress.getByName("123.221.1.55"), packet1);
-        byte[] ripByteRepresentation = getRIPPacket((byte) 1, (byte)12, routingTableEntries);
+        byte[] ripByteRepresentation = getRIPPacket((byte) 1, (byte) 12, routingTableEntries);
 
         printPacket(ripByteRepresentation);
 
         System.out.println(decodeRIPPacket(ripByteRepresentation, ripByteRepresentation.length));
     }
 
-    private static void printPacket(byte[] ripByteRepresentation) {
-        for (int i = 0; i < ripByteRepresentation.length; i += 1) {
-            System.out.printf("%02x" + ((i + 1) % 4 == 0 ? "\n" : "  -- "), ripByteRepresentation[i]);
-        }
-    }
 }

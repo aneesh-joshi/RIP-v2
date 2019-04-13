@@ -5,7 +5,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * The class which will be run per rover
+ * A Rover class which runs the RIPv2 protocol and updates it's tables accordingly.
+ *
+ * @author Aneesh Joshi
  */
 public class Rover {
     byte id;
@@ -20,16 +22,16 @@ public class Rover {
     private int multicastPort;
 
 
-
     private final static Logger LOGGER = Logger.getLogger("ROVER");
     private final static int LISTEN_WINDOW = 1024,
-                            ROUTE_UPDATE_TIME = 5,
-                            ROUTE_DELAY_TIME = 2,
-                            ROVER_OFFLINE_TIME_LIMIT = 10,
-                            ROVER_OFFLINE_TIMER_START_DELAY = 7,
-                            INFINITY = 16;
+            ROUTE_UPDATE_TIME = 5,
+            ROUTE_DELAY_TIME = 2,
+            ROVER_OFFLINE_TIME_LIMIT = 10,
+            ROVER_OFFLINE_TIMER_START_DELAY = 7,
+            INFINITY = 16;
     private final static byte RIP_REQUEST = 1,
-                              RIP_UPDATE = 2;
+            RIP_UPDATE = 2,
+            SUBNET_MASK = 24;
 
     /**
      * Constructs a rover with the given id with an IP ending in that id
@@ -81,7 +83,7 @@ public class Rover {
      *
      * @param newEntries The entries received
      */
-    private void updateEntries(InetAddress sourceAddress, byte sourceRoverId, byte ripCommand, List<RoutingTableEntry> newEntries) throws IOException{
+    private void updateEntries(InetAddress sourceAddress, byte sourceRoverId, byte ripCommand, List<RoutingTableEntry> newEntries) throws IOException {
 
         // Drop your own table entries
         if (sourceAddress.equals(myAddress)) {
@@ -94,14 +96,14 @@ public class Rover {
         neighborRoutingTableEntries.put(sourceAddress, newEntries);
 
         RoutingTableEntry tempEntry = new RoutingTableEntry(sourceAddress, (byte) 24, sourceAddress, (byte) 1);
-        if(!routingTable.containsKey(sourceAddress) || !routingTable.get(sourceAddress).equals(tempEntry)){
+        if (!routingTable.containsKey(sourceAddress) || !routingTable.get(sourceAddress).equals(tempEntry)) {
             routingTable.put(sourceAddress, tempEntry);
             updateHappened = true;
         }
 
 
         // restart the timer task since we have received the heart beat
-        if(neighborTimers.containsKey(sourceAddress)) {
+        if (neighborTimers.containsKey(sourceAddress)) {
             neighborTimers.get(sourceAddress).cancel();
         }
         neighborTimers.put(sourceAddress, new Timer(sourceAddress + " Death Timer"));
@@ -116,40 +118,16 @@ public class Rover {
             }
 
             // If we've never seen the entry's IP before, we immediately add it
-            updateHappened |= updateTableFromEntries(sourceAddress, entry);
+            updateHappened |= updateTableFromEntry(sourceAddress, entry);
         }
 
         // Send an update if
-        if(updateHappened){
+        if (updateHappened) {
             LOGGER.info(myAddress + "'s table is \n" + getStringRoutingTable());
             sendRIPUpdate();
-        }else if(ripCommand == RIP_REQUEST){ // If a request was made, we have to send the update
+        } else if (ripCommand == RIP_REQUEST) { // If a request was made, we have to send the update
             sendRIPUpdate();
         }
-    }
-
-    /**
-     * Ping Google's DNS server in order to get your own IP address on the correct interface
-     * @return this machine's IP on the outgoing interface
-     */
-    private InetAddress getMyInetAddress()throws IOException{
-
-        DatagramSocket tempSocket = new DatagramSocket();
-        tempSocket.connect(InetAddress.getByName("8.8.8.8"), 20800);
-        return tempSocket.getLocalAddress();
-    }
-
-
-    /**
-     * Returns a neat representation of the routing table
-     * @return a neat representation of the routing table
-     */
-    private String getStringRoutingTable(){
-        StringBuilder res = new StringBuilder("IP Address\tNextHop\t\tMetric\n");
-        for(RoutingTableEntry entry: routingTable.values()){
-            res.append(entry.toString() + " \n");
-        }
-        return res.toString();
     }
 
 
@@ -157,10 +135,14 @@ public class Rover {
      * Send update packets out
      */
     private void sendRIPUpdate() throws IOException {
-        multicast(RIPPacketUtil.getRIPPacket(RIP_UPDATE, id, routingTable)); // TODO check if request or response
+        multicast(RIPPacketUtil.getRIPPacket(RIP_UPDATE, id, routingTable));
     }
 
-
+    /**
+     * Listens on the multicast ip and updates the routing table entries accordingly
+     *
+     * @throws IOException
+     */
     private void listenMulticast() throws IOException {
         byte[] buf = new byte[LISTEN_WINDOW];
         while (true) {
@@ -173,21 +155,22 @@ public class Rover {
 
     /**
      * Called by RouterDeathTimerTask object when
-     * @param deadRoverIp
+     *
+     * @param deadRoverIp IP of the rover which died/is offline
      */
-    void registerNeighborDeath(InetAddress deadRoverIp) throws IOException{
+    void registerNeighborDeath(InetAddress deadRoverIp) throws IOException {
         LOGGER.info(deadRoverIp + " just died :(\n\n\n");
         neighborTimers.get(deadRoverIp).cancel();
         routingTable.get(deadRoverIp).metric = INFINITY;
 
-        for(InetAddress inetAddress: routingTable.keySet()){
-            if(routingTable.get(inetAddress).nextHop.equals(deadRoverIp)){
+        for (InetAddress inetAddress : routingTable.keySet()) {
+            if (routingTable.get(inetAddress).nextHop.equals(deadRoverIp)) {
                 routingTable.get(inetAddress).metric = INFINITY;
             }
         }
 
         neighborRoutingTableEntries.remove(deadRoverIp);
-        for(InetAddress neighborIp: neighborRoutingTableEntries.keySet()){
+        for (InetAddress neighborIp : neighborRoutingTableEntries.keySet()) {
             for (RoutingTableEntry entry : neighborRoutingTableEntries.get(neighborIp)) {
                 if (entry.ipAddress.equals(myAddress) ||
                         entry.ipAddress.equals(deadRoverIp) ||
@@ -197,9 +180,9 @@ public class Rover {
                 }
 
 
-                routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) 24, neighborIp, (byte) 1)); // TODO Fix subnet
+                routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) SUBNET_MASK, neighborIp, (byte) 1));
                 // If we've never seen the entry's IP before, we immediately add it
-                updateTableFromEntries(neighborIp, entry);
+                updateTableFromEntry(neighborIp, entry);
             }
         }
 
@@ -209,8 +192,16 @@ public class Rover {
 
     }
 
-    private boolean updateTableFromEntries(InetAddress neighborIp, RoutingTableEntry entry) {
-        int entryVal = entry.nextHop.equals(myAddress)?INFINITY:entry.metric;
+    /**
+     * Update the routing table based on the given entry.
+     * Note: this function was separated from updateRoutingTable since it is also used when a neighbor dies
+     *
+     * @param neighborIp the ip of the neighbor who sent this entry
+     * @param entry      the entry in that neighbor's table
+     * @return true if the entry updates something, false otherwise
+     */
+    private boolean updateTableFromEntry(InetAddress neighborIp, RoutingTableEntry entry) {
+        int entryVal = entry.nextHop.equals(myAddress) ? INFINITY : entry.metric;
 
         if (!routingTable.containsKey(entry.ipAddress)) {
             routingTable.put(entry.ipAddress, new RoutingTableEntry(entry.ipAddress,
@@ -220,15 +211,14 @@ public class Rover {
         }
         // If the entry is this tables next hop, we will trust it
         // Or if the entry is shorter, we update our entry
-        else if(routingTable.get(entry.ipAddress).nextHop.equals(neighborIp) ||
-                routingTable.get(entry.ipAddress).metric > 1 + entryVal){
+        else if (routingTable.get(entry.ipAddress).nextHop.equals(neighborIp) ||
+                routingTable.get(entry.ipAddress).metric > 1 + entryVal) {
 
             routingTable.get(entry.ipAddress).metric =
                     (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal);
             routingTable.get(entry.ipAddress).nextHop = neighborIp;
             routingTable.get(entry.ipAddress).subnetMask = entry.subnetMask;
-        }
-        else{
+        } else {
             return false; // if none of the above conditions hit, we didn't update anything
         }
         return true;
@@ -247,10 +237,42 @@ public class Rover {
         socket.send(packet);
     }
 
+    /**
+     * Ping Google's DNS server in order to get your own IP address on the correct interface
+     *
+     * @return this machine's IP on the outgoing interface
+     */
+    private InetAddress getMyInetAddress() throws IOException {
 
+        DatagramSocket tempSocket = new DatagramSocket();
+        tempSocket.connect(InetAddress.getByName("8.8.8.8"), 20800);
+        return tempSocket.getLocalAddress();
+    }
+
+
+    /**
+     * Returns a neat representation of the routing table
+     *
+     * @return a neat representation of the routing table
+     */
+    private String getStringRoutingTable() {
+        StringBuilder res = new StringBuilder("IP Address\tNextHop\t\tMetric\n");
+        for (RoutingTableEntry entry : routingTable.values()) {
+            res.append(entry.toString() + " \n");
+        }
+        return res.toString();
+    }
+
+
+    /**
+     * Driver function for the Rover class
+     *
+     * @param args the arguments passed to the Rover
+     * @throws IOException
+     */
     public static void main(String[] args) throws IOException {
         ArgumentParser argsParser = new ArgumentParser(args);
-        if(argsParser.success) {
+        if (argsParser.success) {
             new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress);
         }
     }
