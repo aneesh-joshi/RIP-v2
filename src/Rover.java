@@ -13,25 +13,25 @@ public class Rover {
     byte id;
     private MulticastSocket socket;
     private InetAddress group;
-    private byte[] buffer;
     private Map<InetAddress, RoutingTableEntry> routingTable;
-    private Map<InetAddress, List<RoutingTableEntry>> neighborRoutingTableEntries;
+    private Map<InetAddress, List<RoutingTableEntry>> neighborRoutingTableEntriesCache;
     private Map<InetAddress, Timer> neighborTimers;
     private TimerTask timerTask;
-    private InetAddress myAddress;
+    private InetAddress myPublicAddress, myPrivateAddress;
     private int multicastPort;
 
 
     private final static Logger LOGGER = Logger.getLogger("ROVER");
     private final static int LISTEN_WINDOW = 1024,
             ROUTE_UPDATE_TIME = 5,
-            ROUTE_DELAY_TIME = 2,
-            ROVER_OFFLINE_TIME_LIMIT = 10,
-            ROVER_OFFLINE_TIMER_START_DELAY = 7,
+            ROUTE_DELAY_TIME = 1,
+            ROVER_OFFLINE_TIME_LIMIT = 10, // Time to wait before considering a rover to be dead
+            ROVER_OFFLINE_TIMER_START_DELAY = 5,
             INFINITY = 16;
     private final static byte RIP_REQUEST = 1,
             RIP_UPDATE = 2,
             SUBNET_MASK = 24;
+    private Map<InetAddress, InetAddress> privateToPublicAddresCache;
 
     /**
      * Constructs a rover with the given id with an IP ending in that id
@@ -42,16 +42,20 @@ public class Rover {
         this.id = id;
         this.multicastPort = multicastPort;
         routingTable = new ConcurrentHashMap<>();
-        neighborRoutingTableEntries = new HashMap<>();
+        neighborRoutingTableEntriesCache = new HashMap<>();
         neighborTimers = new HashMap<>();
+        privateToPublicAddresCache = new HashMap<>();
 
-        myAddress = getMyInetAddress();
+        myPublicAddress = getMyInetAddress();
+        myPrivateAddress = idToPrivateIp(id);
 
-        LOGGER.info("Rover: " + id + " has IP address of " + myAddress);
+        LOGGER.info("Rover: " + id + " has a public IP address of " + myPublicAddress + " and a private address of " + myPrivateAddress);
         socket = new MulticastSocket(multicastPort);
         group = multicastIP;
         socket.joinGroup(group);
 
+
+        // Send my routing tables every 5 seconds
         timerTask = new TimerTask() {
             @Override
             public void run() {
@@ -62,11 +66,10 @@ public class Rover {
                 }
             }
         };
-
-
         Timer routeUpdateTimer = new Timer("RIP Route Update Timer");
-        routeUpdateTimer.scheduleAtFixedRate(timerTask, ROUTE_DELAY_TIME * 1000, ROUTE_UPDATE_TIME * 1000);
+        routeUpdateTimer.scheduleAtFixedRate(timerTask, 0, 5 * 1000);
 
+        // Listen for updates from other rovers
         new Thread(() -> {
             try {
                 listenMulticast();
@@ -83,58 +86,74 @@ public class Rover {
      *
      * @param newEntries The entries received
      */
-    private void updateEntries(InetAddress sourceAddress, byte sourceRoverId, byte ripCommand, List<RoutingTableEntry> newEntries) throws IOException {
+    private void updateEntries(InetAddress sourcePublicAddress, byte sourceRoverId,
+                               byte ripCommand, List<RoutingTableEntry> newEntries) throws IOException {
 
         // Drop your own table entries
-        if (sourceAddress.equals(myAddress)) {
+        if (sourceRoverId == id) {
             return;
         }
 
-        boolean updateHappened = false;
+        String oldRoutingTableString = routingTable.toString();
+
+        InetAddress sourcePrivateAddress = idToPrivateIp(sourceRoverId);
 
         // Cache the entries of neighbors to recalculate the path when a router dies
-        neighborRoutingTableEntries.put(sourceAddress, newEntries);
+        neighborRoutingTableEntriesCache.put(sourcePrivateAddress, newEntries);
+        privateToPublicAddresCache.put(sourcePrivateAddress, sourcePublicAddress);
 
-        RoutingTableEntry tempEntry = new RoutingTableEntry(sourceAddress, (byte) 24, sourceAddress, (byte) 1);
-        if (!routingTable.containsKey(sourceAddress) || !routingTable.get(sourceAddress).equals(tempEntry)) {
-            routingTable.put(sourceAddress, tempEntry);
-            updateHappened = true;
-        }
+
+        // Since we got a message from this router, it must be at a distance of 1
+        routingTable.put(sourcePrivateAddress, new RoutingTableEntry(sourcePrivateAddress, (byte) 24, sourcePublicAddress, (byte) 1));
 
 
         // restart the timer task since we have received the heart beat
-        if (neighborTimers.containsKey(sourceAddress)) {
-            neighborTimers.get(sourceAddress).cancel();
+        if (neighborTimers.containsKey(sourcePrivateAddress)) {
+            neighborTimers.get(sourcePrivateAddress).cancel();
         }
-        neighborTimers.put(sourceAddress, new Timer(sourceAddress + " Death Timer"));
-        neighborTimers.get(sourceAddress).scheduleAtFixedRate(
-                new RouterDeathTimerTask(this, sourceAddress),
-                ROVER_OFFLINE_TIMER_START_DELAY * 1000, ROVER_OFFLINE_TIME_LIMIT * 1000);
+
+        neighborTimers.put(sourcePrivateAddress, new Timer(sourcePrivateAddress + " Death Timer"));
+        neighborTimers.get(sourcePrivateAddress).schedule(
+                                                        new RouterDeathTimerTask(
+                                                                this, sourcePrivateAddress, sourcePublicAddress),
+                                                        7 * 1000
+            );
 
         for (RoutingTableEntry entry : newEntries) {
             // skip your own multicast
-            if (myAddress.equals(entry.ipAddress)) {
+            if (myPrivateAddress.equals(entry.ipAddress)) {
                 continue;
             }
 
-            // If we've never seen the entry's IP before, we immediately add it
-            updateHappened |= updateTableFromEntry(sourceAddress, entry);
+            updateTableFromEntry(sourcePublicAddress, entry);
         }
 
+        boolean updateHappened = !oldRoutingTableString.equals(routingTable.toString());
+//        System.out.println("toString looks like "  + oldRoutingTableString);
         // Send an update if
         if (updateHappened) {
-            LOGGER.info(myAddress + "'s table is \n" + getStringRoutingTable());
+            LOGGER.info(myPrivateAddress + "'s table was updated from received entries. New table is ->\n" + getStringRoutingTable() + "\n");
             sendRIPUpdate();
         } else if (ripCommand == RIP_REQUEST) { // If a request was made, we have to send the update
+            LOGGER.info(myPrivateAddress + " got a RIP request. Going to send a RIP update -> \n" + getStringRoutingTable() + " \n");
             sendRIPUpdate();
         }
     }
 
+    /**
+     * Returns a private IP based on the IP address
+     * @param id the rover's id
+     * @return a private IP based on the IP address
+     */
+    private InetAddress idToPrivateIp(byte id) throws UnknownHostException{
+        return InetAddress.getByName("10." + id + ".0.1");
+    }
 
     /**
      * Send update packets out
      */
     private void sendRIPUpdate() throws IOException {
+//        LOGGER.info(myPrivateAddress + " is sending a RIP update\n");
         multicast(RIPPacketUtil.getRIPPacket(RIP_UPDATE, id, routingTable));
     }
 
@@ -156,68 +175,81 @@ public class Rover {
     /**
      * Called by RouterDeathTimerTask object when
      *
-     * @param deadRoverIp IP of the rover which died/is offline
+     * @param deadRoverPrivateAddress IP of the rover which died/is offline
      */
-    void registerNeighborDeath(InetAddress deadRoverIp) throws IOException {
-        LOGGER.info(deadRoverIp + " just died :(\n\n\n");
-        neighborTimers.get(deadRoverIp).cancel();
-        routingTable.get(deadRoverIp).metric = INFINITY;
+    void registerNeighborDeath(InetAddress deadRoverPrivateAddress, InetAddress deadRoverPublicAddress) throws IOException {
+        LOGGER.info(deadRoverPrivateAddress + " just died :(\n\n\n");
 
-        for (InetAddress inetAddress : routingTable.keySet()) {
-            if (routingTable.get(inetAddress).nextHop.equals(deadRoverIp)) {
+        neighborTimers.get(deadRoverPrivateAddress).cancel();
+
+        routingTable.get(deadRoverPrivateAddress).metric = INFINITY;
+
+        for (InetAddress inetAddress : this.routingTable.keySet()) {
+            if (routingTable.get(inetAddress).nextHop.equals(deadRoverPublicAddress)) {
                 routingTable.get(inetAddress).metric = INFINITY;
             }
         }
 
-        neighborRoutingTableEntries.remove(deadRoverIp);
-        for (InetAddress neighborIp : neighborRoutingTableEntries.keySet()) {
-            for (RoutingTableEntry entry : neighborRoutingTableEntries.get(neighborIp)) {
-                if (entry.ipAddress.equals(myAddress) ||
-                        entry.ipAddress.equals(deadRoverIp) ||
-                        entry.nextHop.equals(myAddress) ||
-                        entry.nextHop.equals(deadRoverIp)) {
+        /**neighborRoutingTableEntriesCache.remove(deadRoverPrivateAddress);
+
+        for (InetAddress neighborIp : neighborRoutingTableEntriesCache.keySet()) {
+            for (RoutingTableEntry entry : neighborRoutingTableEntriesCache.get(neighborIp)) {
+                if (entry.ipAddress.equals(myPrivateAddress) ||
+                        entry.ipAddress.equals(deadRoverPrivateAddress) ||
+                        entry.nextHop.equals(myPublicAddress) ||
+                        entry.nextHop.equals(deadRoverPublicAddress)) {
                     continue;
                 }
 
+                // put all neighbors at 1 distance
+                routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) SUBNET_MASK,
+                                 privateToPublicAddresCache.get(neighborIp), (byte) 1));
 
-                routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) SUBNET_MASK, neighborIp, (byte) 1));
-                // If we've never seen the entry's IP before, we immediately add it
-                updateTableFromEntry(neighborIp, entry);
+                updateTableFromEntry(privateToPublicAddresCache.get(neighborIp), entry);
             }
-        }
+        }**/
 
-        LOGGER.info(myAddress + "'s table is \n" + getStringRoutingTable());
+        LOGGER.info(myPublicAddress + "'s table as updated after rover death is \n" + getStringRoutingTable());
+
         // send a triggered update
         sendRIPUpdate();
-
     }
 
     /**
      * Update the routing table based on the given entry.
      * Note: this function was separated from updateRoutingTable since it is also used when a neighbor dies
      *
-     * @param neighborIp the ip of the neighbor who sent this entry
+     * @param neighborPublicIp the ip of the neighbor who sent this entry
      * @param entry      the entry in that neighbor's table
      * @return true if the entry updates something, false otherwise
      */
-    private boolean updateTableFromEntry(InetAddress neighborIp, RoutingTableEntry entry) {
-        int entryVal = entry.nextHop.equals(myAddress) ? INFINITY : entry.metric;
+    private boolean updateTableFromEntry(InetAddress neighborPublicIp, RoutingTableEntry entry) {
 
+        // If the entry uses me as its next hop, I can't believe it and will read it as INFINITY
+        int entryVal = entry.nextHop.equals(myPublicAddress) ? INFINITY : entry.metric;
+
+        // If we've never seen the entry's IP before, we immediately add it
         if (!routingTable.containsKey(entry.ipAddress)) {
             routingTable.put(entry.ipAddress, new RoutingTableEntry(entry.ipAddress,
-                    entry.subnetMask,
-                    neighborIp,
-                    (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal)));
+                                                                    entry.subnetMask,
+                                                                    neighborPublicIp,
+                                                                    (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal)));
         }
         // If the entry is this tables next hop, we will trust it
         // Or if the entry is shorter, we update our entry
-        else if (routingTable.get(entry.ipAddress).nextHop.equals(neighborIp) ||
+        else if (routingTable.get(entry.ipAddress).nextHop.equals(neighborPublicIp) ||
                 routingTable.get(entry.ipAddress).metric > 1 + entryVal) {
+
+//            RoutingTableEntry oldEntry = new RoutingTableEntry(entry.ipAddress, entry.subnetMask, entry.nextHop, entry.metric);
 
             routingTable.get(entry.ipAddress).metric =
                     (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal);
-            routingTable.get(entry.ipAddress).nextHop = neighborIp;
+            routingTable.get(entry.ipAddress).nextHop = neighborPublicIp;
             routingTable.get(entry.ipAddress).subnetMask = entry.subnetMask;
+
+//            if(routingTable.get(entry.ipAddress).equals(oldEntry)){
+//                return false;
+//            }
         } else {
             return false; // if none of the above conditions hit, we didn't update anything
         }
