@@ -19,6 +19,7 @@ public class Rover {
     private TimerTask timerTask;
     private InetAddress myPublicAddress, myPrivateAddress;
     private int multicastPort;
+    private String fileToSend;
 
 
     private final static Logger LOGGER = Logger.getLogger("ROVER");
@@ -38,9 +39,10 @@ public class Rover {
      *
      * @param id
      */
-    Rover(byte id, int multicastPort, InetAddress multicastIP) throws IOException {
+    Rover(byte id, int multicastPort, InetAddress multicastIP, String fileToSend) throws IOException {
         this.id = id;
         this.multicastPort = multicastPort;
+        this.fileToSend = fileToSend;
         routingTable = new ConcurrentHashMap<>();
         neighborRoutingTableEntriesCache = new HashMap<>();
         neighborTimers = new HashMap<>();
@@ -49,7 +51,8 @@ public class Rover {
         myPublicAddress = getMyInetAddress();
         myPrivateAddress = idToPrivateIp(id);
 
-        LOGGER.info("Rover: " + id + " has a public IP address of " + myPublicAddress + " and a private address of " + myPrivateAddress);
+        LOGGER.info("Rover: " + id + " has a public IP address of " + myPublicAddress + " and a private address of " +
+                myPrivateAddress  + " and will be sending the file " + fileToSend );
         socket = new MulticastSocket(multicastPort);
         group = multicastIP;
         socket.joinGroup(group);
@@ -239,17 +242,10 @@ public class Rover {
         // Or if the entry is shorter, we update our entry
         else if (routingTable.get(entry.ipAddress).nextHop.equals(neighborPublicIp) ||
                 routingTable.get(entry.ipAddress).metric > 1 + entryVal) {
-
-//            RoutingTableEntry oldEntry = new RoutingTableEntry(entry.ipAddress, entry.subnetMask, entry.nextHop, entry.metric);
-
             routingTable.get(entry.ipAddress).metric =
                     (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal);
             routingTable.get(entry.ipAddress).nextHop = neighborPublicIp;
             routingTable.get(entry.ipAddress).subnetMask = entry.subnetMask;
-
-//            if(routingTable.get(entry.ipAddress).equals(oldEntry)){
-//                return false;
-//            }
         } else {
             return false; // if none of the above conditions hit, we didn't update anything
         }
@@ -305,7 +301,7 @@ public class Rover {
     public static void main(String[] args) throws IOException {
         ArgumentParser argsParser = new ArgumentParser(args);
         if (argsParser.success) {
-            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress);
+            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress, argsParser.fileToSend);
         }
     }
 }

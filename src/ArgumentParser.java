@@ -11,6 +11,7 @@ class ArgumentParser {
     int multicastPort = 5200;
     byte roverId = 10;
     boolean success=false;
+    String fileToSend;
 
     /**
      * Constructs the argument parser object using the arguments which are
@@ -49,6 +50,11 @@ class ArgumentParser {
                         roverId = Byte.parseByte(args[index + 1]);
                         index += 2;
                         break;
+                    case "-f":
+                    case "--file":
+                        fileToSend = args[index + 1];
+                        index += 2;
+                        break;
                     default:
                             throw new IllegalArgumentException("You've probably provided an Illegal exception. " +
                                     "Please run `java Rover --help` for the correct options");
@@ -65,8 +71,9 @@ class ArgumentParser {
         System.out.println("DESCRIPTION :\n Initializes a Rover on a given multicast ip, port and with a given id\n" +
                 "USAGE :\n " +
                 "- java Rover [-h | --help]\n"+
-                "- java Rover [-p | --port] 520 [-m | --multicastIp] 233.0.0.0  [-i | --id] 10\n" +
+                "- java Rover [-p | --port] 520 [-m | --multicastIp] 233.0.0.0  [-i | --id] 10" +
+                " [-f | --file] fileToSend\n" +
                 "\nEXAMPLE:\n" +
-                "java Rover --port 520 --multicastIp 233.0.0.0 --id 10");
+                "java Rover --port 520 --multicastIp 233.0.0.0 --id 10 --file path/to/file");
     }
 }
