@@ -6,18 +6,19 @@ import java.net.InetAddress;
 public class JPacket {
     InetAddress destAddress, sourceAddress;
     int seqNumber, ackNumber;
-//    int length;
+    int totalSize;
     byte flags;
     byte[] payload;
 
     public JPacket(InetAddress destAddress, InetAddress sourceAddress,
-                   int seqNumber, int ackNumber, byte flags, byte[] payload) {
+                   int seqNumber, int ackNumber, byte flags, byte[] payload, int totalSize) {
         this.flags = flags;
         this.destAddress = destAddress;
         this.sourceAddress = sourceAddress;
         this.seqNumber = seqNumber;
         this.ackNumber = ackNumber;
         this.payload = payload;
+        this.totalSize = totalSize;
     }
 
     JPacket(){
@@ -27,12 +28,23 @@ public class JPacket {
     @Override
     public String toString() {
         StringBuilder res = new StringBuilder();
-        res.append("Flags : " + BitUtils.byteBitRepresentation(flags) + "\n");
-        res.append("Destination Address : " + destAddress + "\n");
-        res.append("Source Address : " + sourceAddress + "\n");
-        res.append("Sequence Number : " + seqNumber + "\n");
-        res.append("Acknowledgement Number : " + ackNumber + "\n");
-        res.append("Payload size " + payload.length + "\n");
+        res.append("Flags : ").append(BitUtils.byteBitRepresentation(flags)).append("\n");
+        if(JPacketUtil.isBitSet(flags, JPacketUtil.SYN_INDEX)) {
+            res.append("Length of total payload " + (JPacketUtil.isBitSet(flags, JPacketUtil.SYN_INDEX) ? totalSize : "") + "\n");
+        }
+
+
+        res.append("Destination Address : ").append(destAddress).append("\n");
+        res.append("Source Address : ").append(sourceAddress).append("\n");
+
+        res.append(JPacketUtil.isBitSet(flags, JPacketUtil.NORMAL_INDEX)?"Sequence Number : " + seqNumber + "\n":"");
+
+        res.append(JPacketUtil.isBitSet(flags, JPacketUtil.ACK_INDEX)?"Acknowledgment Number : " + ackNumber + "\n" :"");
+
+        if(payload != null) {
+            res.append("Payload size ").append(payload.length).append("\n");
+            res.append("Payload is ").append(payload.length == 0 ? "empty" : "\n" + BitUtils.getHexDump(payload)).append("\n");
+        }
         return res.toString();
     }
 }
