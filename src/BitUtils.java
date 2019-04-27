@@ -1,4 +1,4 @@
-public class BitUtils {
+class BitUtils {
     static String byteBitRepresentation(byte byteToRepresent){
         StringBuilder res = new StringBuilder();
         int bitVector = 1;

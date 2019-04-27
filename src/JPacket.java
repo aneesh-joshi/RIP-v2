@@ -10,8 +10,8 @@ public class JPacket {
     byte flags;
     byte[] payload;
 
-    public JPacket(InetAddress destAddress, InetAddress sourceAddress,
-                   int seqNumber, int ackNumber, byte flags, byte[] payload, int totalSize) {
+    JPacket(InetAddress destAddress, InetAddress sourceAddress,
+            int seqNumber, int ackNumber, byte flags, byte[] payload, int totalSize) {
         this.flags = flags;
         this.destAddress = destAddress;
         this.sourceAddress = sourceAddress;
@@ -30,7 +30,7 @@ public class JPacket {
         StringBuilder res = new StringBuilder();
         res.append("Flags : ").append(BitUtils.byteBitRepresentation(flags)).append("\n");
         if(JPacketUtil.isBitSet(flags, JPacketUtil.SYN_INDEX)) {
-            res.append("Length of total payload " + (JPacketUtil.isBitSet(flags, JPacketUtil.SYN_INDEX) ? totalSize : "") + "\n");
+            res.append("Length of total payload ").append(JPacketUtil.isBitSet(flags, JPacketUtil.SYN_INDEX) ? totalSize : "").append("\n");
         }
 
 
