@@ -1,4 +1,4 @@
-import java.io.IOException;
+import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,7 +12,7 @@ import java.util.logging.Logger;
 public class Rover {
     byte id;
     private MulticastSocket socket;
-    private InetAddress group;
+    private InetAddress group, destAddress;
     private Map<InetAddress, RoutingTableEntry> routingTable;
     private Map<InetAddress, List<RoutingTableEntry>> neighborRoutingTableEntriesCache;
     private Map<InetAddress, Timer> neighborTimers;
@@ -20,6 +20,7 @@ public class Rover {
     private InetAddress myPublicAddress, myPrivateAddress;
     private int multicastPort;
     private String fileToSend;
+    private DatagramSocket udpSocket;
 
 
     private final static Logger LOGGER = Logger.getLogger("ROVER");
@@ -28,21 +29,32 @@ public class Rover {
             ROUTE_DELAY_TIME = 1,
             ROVER_OFFLINE_TIME_LIMIT = 10, // Time to wait before considering a rover to be dead
             ROVER_OFFLINE_TIMER_START_DELAY = 5,
-            INFINITY = 16;
+            MAX_READ_WINDOW = 1024,
+            DOES_NOT_MATTER = 0,
+            WAIT_TIME_BEFORE_TRANSFER = 5, // Time to wait before transferring the file
+            INFINITY = 16,
+            UDP_PORT = 5353,
+            WAIT_TIME_TILL_ROUTE_APPEARS = 5, // Time to wait before checking if the route to the destination rover is up
+            MAX_HEADER_SIZE = 10, // The maximum data a header can take (never listen for a packet smaller than this)
+            MAX_PAYLOAD_SIZE = 10; // The chunks in which the data will be sent
     private final static byte RIP_REQUEST = 1,
             RIP_UPDATE = 2,
             SUBNET_MASK = 24;
     private Map<InetAddress, InetAddress> privateToPublicAddresCache;
+
 
     /**
      * Constructs a rover with the given id with an IP ending in that id
      *
      * @param id
      */
-    Rover(byte id, int multicastPort, InetAddress multicastIP, String fileToSend) throws IOException {
+    Rover(byte id, int multicastPort, InetAddress multicastIP, String fileToSend, InetAddress destAddress) throws IOException {
         this.id = id;
         this.multicastPort = multicastPort;
         this.fileToSend = fileToSend;
+        this.destAddress = destAddress;
+        udpSocket = new DatagramSocket(UDP_PORT);
+
         routingTable = new ConcurrentHashMap<>();
         neighborRoutingTableEntriesCache = new HashMap<>();
         neighborTimers = new HashMap<>();
@@ -52,7 +64,7 @@ public class Rover {
         myPrivateAddress = idToPrivateIp(id);
 
         LOGGER.info("Rover: " + id + " has a public IP address of " + myPublicAddress + " and a private address of " +
-                myPrivateAddress  + " and will be sending the file " + fileToSend );
+                myPrivateAddress + " and will be sending the file " + fileToSend + " to " + this.destAddress);
         socket = new MulticastSocket(multicastPort);
         group = multicastIP;
         socket.joinGroup(group);
@@ -82,6 +94,97 @@ public class Rover {
             }
         }).start();
 
+
+        // TODO add check for if file needs to be sent
+        if (destAddress != null) {
+            new Thread(() -> {
+                sendFile();
+            }).start();
+        }
+
+        new Thread(() -> {
+            listenForFileTransfer();
+        }).start();
+
+    }
+
+    private void sendFile() {
+        try {
+            Thread.sleep(WAIT_TIME_BEFORE_TRANSFER * 1000); // TODO make this timer task
+
+            while (!routingTable.containsKey(destAddress)) {
+                LOGGER.info("No entry for " + destAddress + ". Waiting for " + WAIT_TIME_TILL_ROUTE_APPEARS + " seconds.");
+                Thread.sleep(WAIT_TIME_TILL_ROUTE_APPEARS * 1000); // TODO make this timer task
+            }
+
+            long totalSize = new File(fileToSend).length();
+            BufferedInputStream bufferedInputStream = new BufferedInputStream(new FileInputStream(fileToSend));
+            byte[] buffer = new byte[MAX_PAYLOAD_SIZE];
+            DatagramPacket packet;
+
+            int bytesRead;
+            byte[] packetToSend;
+            int seqNumber = 1;
+            boolean synSent = false;
+
+            while ((bytesRead = bufferedInputStream.read(buffer, 0, buffer.length)) != -1) {
+                // If the size of the buffer to be sent is less than MAX_PAYLOAD_SIZE, we will reduce it to have
+                // only the things we need
+                if (bytesRead < MAX_PAYLOAD_SIZE) {
+                    buffer = Arrays.copyOf(buffer, bytesRead);
+                    LOGGER.info("Resized the buffer to " + buffer.length);
+                }
+
+                if(!synSent){
+                    packetToSend = JPacketUtil.jPacket2Arr(destAddress, this.myPrivateAddress,
+                            DOES_NOT_MATTER, DOES_NOT_MATTER, BitUtils.setBitInByte((byte)0, JPacketUtil.SYN_INDEX),
+                            buffer, (int)totalSize);
+                    synSent = true;
+                }else{
+                    packetToSend = JPacketUtil.jPacket2Arr(destAddress, this.myPrivateAddress,
+                            seqNumber++, DOES_NOT_MATTER, BitUtils.setBitInByte((byte)0, JPacketUtil.NORMAL_INDEX),
+                            buffer, DOES_NOT_MATTER);
+                }
+
+
+                System.out.println("About to send packet " + BitUtils.getHexDump(packetToSend));
+                System.out.println(JPacketUtil.arr2JPacket(packetToSend));
+                System.out.println("-----------------------------\n");
+
+                packet = new DatagramPacket(packetToSend, packetToSend.length, routingTable.get(destAddress).nextHop, UDP_PORT);
+                socket.send(packet);
+
+                System.out.println("Sent the packet");
+            }
+        } catch (InterruptedException | IOException e) {
+            e.printStackTrace();
+            System.exit(42);
+        }
+    }
+
+    private void listenForFileTransfer() {
+        DatagramPacket packet;
+        byte[] buffer = new byte[MAX_READ_WINDOW];
+        byte[] actualPacket;
+        try {
+            while (true) {
+                packet = new DatagramPacket(buffer, buffer.length);
+                udpSocket.receive(packet);
+
+                actualPacket = Arrays.copyOfRange(buffer, 0, packet.getLength());
+
+                LOGGER.info("Got this packet " + BitUtils.getHexDump(actualPacket));
+
+                JPacket jPacket = JPacketUtil.arr2JPacket(actualPacket);
+                LOGGER.info("Got this payload");
+                BitUtils.printPacket(jPacket.payload);
+                System.out.println("\n~~~~~~~~~~~~~~");
+
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.exit(42);
+        }
     }
 
     /**
@@ -117,10 +220,10 @@ public class Rover {
 
         neighborTimers.put(sourcePrivateAddress, new Timer(sourcePrivateAddress + " Death Timer"));
         neighborTimers.get(sourcePrivateAddress).schedule(
-                                                        new RouterDeathTimerTask(
-                                                                this, sourcePrivateAddress, sourcePublicAddress),
-                                                        7 * 1000
-            );
+                new RouterDeathTimerTask(
+                        this, sourcePrivateAddress, sourcePublicAddress),
+                7 * 1000
+        );
 
         for (RoutingTableEntry entry : newEntries) {
             // skip your own multicast
@@ -145,10 +248,11 @@ public class Rover {
 
     /**
      * Returns a private IP based on the IP address
+     *
      * @param id the rover's id
      * @return a private IP based on the IP address
      */
-    private InetAddress idToPrivateIp(byte id) throws UnknownHostException{
+    private InetAddress idToPrivateIp(byte id) throws UnknownHostException {
         return InetAddress.getByName("10." + id + ".0.1");
     }
 
@@ -195,22 +299,22 @@ public class Rover {
 
         /**neighborRoutingTableEntriesCache.remove(deadRoverPrivateAddress);
 
-        for (InetAddress neighborIp : neighborRoutingTableEntriesCache.keySet()) {
-            for (RoutingTableEntry entry : neighborRoutingTableEntriesCache.get(neighborIp)) {
-                if (entry.ipAddress.equals(myPrivateAddress) ||
-                        entry.ipAddress.equals(deadRoverPrivateAddress) ||
-                        entry.nextHop.equals(myPublicAddress) ||
-                        entry.nextHop.equals(deadRoverPublicAddress)) {
-                    continue;
-                }
+         for (InetAddress neighborIp : neighborRoutingTableEntriesCache.keySet()) {
+         for (RoutingTableEntry entry : neighborRoutingTableEntriesCache.get(neighborIp)) {
+         if (entry.ipAddress.equals(myPrivateAddress) ||
+         entry.ipAddress.equals(deadRoverPrivateAddress) ||
+         entry.nextHop.equals(myPublicAddress) ||
+         entry.nextHop.equals(deadRoverPublicAddress)) {
+         continue;
+         }
 
-                // put all neighbors at 1 distance
-                routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) SUBNET_MASK,
-                                 privateToPublicAddresCache.get(neighborIp), (byte) 1));
+         // put all neighbors at 1 distance
+         routingTable.put(neighborIp, new RoutingTableEntry(neighborIp, (byte) SUBNET_MASK,
+         privateToPublicAddresCache.get(neighborIp), (byte) 1));
 
-                updateTableFromEntry(privateToPublicAddresCache.get(neighborIp), entry);
-            }
-        }**/
+         updateTableFromEntry(privateToPublicAddresCache.get(neighborIp), entry);
+         }
+         }**/
 
         LOGGER.info(myPublicAddress + "'s table as updated after rover death is \n" + getStringRoutingTable());
 
@@ -223,7 +327,7 @@ public class Rover {
      * Note: this function was separated from updateRoutingTable since it is also used when a neighbor dies
      *
      * @param neighborPublicIp the ip of the neighbor who sent this entry
-     * @param entry      the entry in that neighbor's table
+     * @param entry            the entry in that neighbor's table
      * @return true if the entry updates something, false otherwise
      */
     private boolean updateTableFromEntry(InetAddress neighborPublicIp, RoutingTableEntry entry) {
@@ -234,9 +338,9 @@ public class Rover {
         // If we've never seen the entry's IP before, we immediately add it
         if (!routingTable.containsKey(entry.ipAddress)) {
             routingTable.put(entry.ipAddress, new RoutingTableEntry(entry.ipAddress,
-                                                                    entry.subnetMask,
-                                                                    neighborPublicIp,
-                                                                    (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal)));
+                    entry.subnetMask,
+                    neighborPublicIp,
+                    (byte) ((1 + entryVal) >= INFINITY ? INFINITY : 1 + entryVal)));
         }
         // If the entry is this tables next hop, we will trust it
         // Or if the entry is shorter, we update our entry
@@ -301,7 +405,7 @@ public class Rover {
     public static void main(String[] args) throws IOException {
         ArgumentParser argsParser = new ArgumentParser(args);
         if (argsParser.success) {
-            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress, argsParser.fileToSend);
+            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress, argsParser.fileToSend, argsParser.destAddress);
         }
     }
 }
