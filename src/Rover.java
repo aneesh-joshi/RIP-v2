@@ -20,7 +20,7 @@ public class Rover {
     private InetAddress myPublicAddress, myPrivateAddress;
     private int multicastPort;
     private String fileToSend;
-    private DatagramSocket udpSocket;
+    private DatagramSocket udpSocket, udpAckSocket;
 
 
     private final static Logger LOGGER = Logger.getLogger("ROVER");
@@ -31,9 +31,10 @@ public class Rover {
             ROVER_OFFLINE_TIMER_START_DELAY = 5,
             MAX_READ_WINDOW = 1024,
             DOES_NOT_MATTER = 0,
-            WAIT_TIME_BEFORE_TRANSFER = 5, // Time to wait before transferring the file
+            WAIT_TIME_BEFORE_TRANSFER = 3, // Time to wait before transferring the file
             INFINITY = 16,
             UDP_PORT = 5353,
+            UDP_ACK_PORT = 5454,
             WAIT_TIME_TILL_ROUTE_APPEARS = 5, // Time to wait before checking if the route to the destination rover is up
             MAX_HEADER_SIZE = 10, // The maximum data a header can take (never listen for a packet smaller than this)
             MAX_PAYLOAD_SIZE = 10; // The chunks in which the data will be sent
@@ -54,6 +55,7 @@ public class Rover {
         this.fileToSend = fileToSend;
         this.destAddress = destAddress;
         udpSocket = new DatagramSocket(UDP_PORT);
+        udpAckSocket = new DatagramSocket(UDP_ACK_PORT);
 
         routingTable = new ConcurrentHashMap<>();
         neighborRoutingTableEntriesCache = new HashMap<>();
@@ -116,10 +118,11 @@ public class Rover {
             long totalSize = new File(fileToSend).length();
             BufferedInputStream bufferedInputStream = new BufferedInputStream(new FileInputStream(fileToSend));
             byte[] buffer = new byte[MAX_PAYLOAD_SIZE];
+            byte[] recvBuffer = new byte[MAX_PAYLOAD_SIZE];
             DatagramPacket packet;
 
             int bytesRead;
-            byte[] packetToSend;
+            byte[] packetToSend, actualPacket;
             int seqNumber = 1;
             boolean synSent = false;
 
@@ -150,7 +153,24 @@ public class Rover {
                 packet = new DatagramPacket(packetToSend, packetToSend.length, routingTable.get(destAddress).nextHop, UDP_PORT);
                 udpSocket.send(packet);
 
-                System.out.println("Sent the packet");
+                LOGGER.info("Sent the packet, Waiting for ACK\n");
+
+//                packet = new DatagramPacket(recvBuffer, recvBuffer.length);
+
+//                udpAckSocket.receive(packet);
+
+                JPacket recvdJPacket;
+                do {
+//                    System.out.println("Waiting here");
+                    packet = new DatagramPacket(recvBuffer, recvBuffer.length);
+                    udpAckSocket.receive(packet);
+//                    System.out.println("Got something");
+                    actualPacket = Arrays.copyOfRange(recvBuffer, 0, packet.getLength());
+                    recvdJPacket = JPacketUtil.arr2JPacket(actualPacket);
+                }while(!JPacketUtil.isBitSet(recvdJPacket.flags, JPacketUtil.ACK_INDEX) && recvdJPacket.ackNumber != seqNumber);
+
+                LOGGER.info("Got an ack, moving ahead");
+
             }
         } catch (InterruptedException | IOException e) {
             e.printStackTrace();
@@ -189,14 +209,16 @@ public class Rover {
                     System.out.println("Got an ACK from " + jPacket.sourceAddress);
                 }
                 else if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX)) {
-                    totalFileSize = jPacket.totalSize;
+                    totalFileSize = jPacket.totalSize - jPacket.payload.length;
                     byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
                             jPacket.seqNumber + 1,
                             BitUtils.setBitInByte((byte)0, JPacketUtil.ACK_INDEX),
                             new byte[0], DOES_NOT_MATTER);
 
                     udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
-                                routingTable.get(jPacket.sourceAddress).nextHop, UDP_PORT));
+                                routingTable.get(jPacket.sourceAddress).nextHop, UDP_ACK_PORT));
+
+
                 }else if(JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX)){
                     totalFileSize -= jPacket.payload.length;
                     byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
@@ -205,9 +227,12 @@ public class Rover {
                             new byte[0], DOES_NOT_MATTER);
 
                     udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
-                            routingTable.get(jPacket.sourceAddress).nextHop, UDP_PORT));
+                            routingTable.get(jPacket.sourceAddress).nextHop, UDP_ACK_PORT));
                 }
 
+                if(totalFileSize == 0 && !JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)){
+                    System.out.println("FILE FULLY RECEIVED --============================");
+                }
 
             }
         } catch (IOException e) {
