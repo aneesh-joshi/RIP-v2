@@ -97,14 +97,10 @@ public class Rover {
 
         // TODO add check for if file needs to be sent
         if (destAddress != null) {
-            new Thread(() -> {
-                sendFile();
-            }).start();
+            new Thread(this::sendFile).start();
         }
 
-        new Thread(() -> {
-            listenForFileTransfer();
-        }).start();
+        new Thread(this::listenForFileTransfer).start();
 
     }
 
@@ -135,14 +131,14 @@ public class Rover {
                     LOGGER.info("Resized the buffer to " + buffer.length);
                 }
 
-                if(!synSent){
+                if (!synSent) {
                     packetToSend = JPacketUtil.jPacket2Arr(destAddress, this.myPrivateAddress,
-                            DOES_NOT_MATTER, DOES_NOT_MATTER, BitUtils.setBitInByte((byte)0, JPacketUtil.SYN_INDEX),
-                            buffer, (int)totalSize);
+                            DOES_NOT_MATTER, DOES_NOT_MATTER, BitUtils.setBitInByte((byte) 0, JPacketUtil.SYN_INDEX),
+                            buffer, (int) totalSize);
                     synSent = true;
-                }else{
+                } else {
                     packetToSend = JPacketUtil.jPacket2Arr(destAddress, this.myPrivateAddress,
-                            seqNumber++, DOES_NOT_MATTER, BitUtils.setBitInByte((byte)0, JPacketUtil.NORMAL_INDEX),
+                            seqNumber++, DOES_NOT_MATTER, BitUtils.setBitInByte((byte) 0, JPacketUtil.NORMAL_INDEX),
                             buffer, DOES_NOT_MATTER);
                 }
 
@@ -152,7 +148,7 @@ public class Rover {
                 System.out.println("-----------------------------\n");
 
                 packet = new DatagramPacket(packetToSend, packetToSend.length, routingTable.get(destAddress).nextHop, UDP_PORT);
-                socket.send(packet);
+                udpSocket.send(packet);
 
                 System.out.println("Sent the packet");
             }
@@ -166,6 +162,8 @@ public class Rover {
         DatagramPacket packet;
         byte[] buffer = new byte[MAX_READ_WINDOW];
         byte[] actualPacket;
+        int totalFileSize = 0;
+
         try {
             while (true) {
                 packet = new DatagramPacket(buffer, buffer.length);
@@ -176,9 +174,40 @@ public class Rover {
                 LOGGER.info("Got this packet " + BitUtils.getHexDump(actualPacket));
 
                 JPacket jPacket = JPacketUtil.arr2JPacket(actualPacket);
-                LOGGER.info("Got this payload");
-                BitUtils.printPacket(jPacket.payload);
-                System.out.println("\n~~~~~~~~~~~~~~");
+                if(jPacket.payload != null) {
+                    LOGGER.info("Got this payload");
+                    BitUtils.printPacket(jPacket.payload);
+                    System.out.println("\n~~~~~~~~~~~~~~");
+                }
+
+                if (!jPacket.destAddress.equals(myPrivateAddress)) {
+                    udpSocket.send(new DatagramPacket(actualPacket, actualPacket.length));
+                    continue;
+                }
+
+                if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) {
+                    System.out.println("Got an ACK from " + jPacket.sourceAddress);
+                }
+                else if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX)) {
+                    totalFileSize = jPacket.totalSize;
+                    byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
+                            jPacket.seqNumber + 1,
+                            BitUtils.setBitInByte((byte)0, JPacketUtil.ACK_INDEX),
+                            new byte[0], DOES_NOT_MATTER);
+
+                    udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
+                                routingTable.get(jPacket.sourceAddress).nextHop, UDP_PORT));
+                }else if(JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX)){
+                    totalFileSize -= jPacket.payload.length;
+                    byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
+                            jPacket.seqNumber + 1,
+                            BitUtils.setBitInByte((byte)0, JPacketUtil.ACK_INDEX),
+                            new byte[0], DOES_NOT_MATTER);
+
+                    udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
+                            routingTable.get(jPacket.sourceAddress).nextHop, UDP_PORT));
+                }
+
 
             }
         } catch (IOException e) {
