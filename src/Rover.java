@@ -34,9 +34,10 @@ public class Rover {
             INFINITY = 16,
             UDP_PORT = 5353,
             UDP_ACK_PORT = 5454,
+            ACK_WAIT_TIMEOUT = 1000,
             WAIT_TIME_TILL_ROUTE_APPEARS = 5, // Time to wait before checking if the route to the destination rover is up
             MAX_HEADER_SIZE = 10, // The maximum data a header can take (never listen for a packet smaller than this)
-            MAX_PAYLOAD_SIZE = 10; // The chunks in which the data will be sent
+            MAX_PAYLOAD_SIZE = 100; // The chunks in which the data will be sent
     private final static byte RIP_REQUEST = 1,
             RIP_UPDATE = 2,
             SUBNET_MASK = 24;
@@ -121,12 +122,17 @@ public class Rover {
             byte[] recvBuffer = new byte[MAX_PAYLOAD_SIZE];
             DatagramPacket packet;
 
-            int bytesRead;
+            int bytesRead=0;
             byte[] packetToSend, actualPacket;
             int seqNumber = 1;
-            boolean synSent = false;
+            boolean synSent = false, repeat = false;
 
-            while ((bytesRead = bufferedInputStream.read(buffer, 0, buffer.length)) != -1) {
+            while (repeat || (bytesRead = bufferedInputStream.read(buffer, 0, buffer.length)) != -1) {
+
+                if(repeat){
+                    LOGGER.info("This is a repeat message because ACK was not received");
+                }
+
                 // If the size of the buffer to be sent is less than MAX_PAYLOAD_SIZE, we will reduce it to have
                 // only the things we need
                 if (bytesRead < MAX_PAYLOAD_SIZE) {
@@ -141,7 +147,7 @@ public class Rover {
                     synSent = true;
                 } else {
                     packetToSend = JPacketUtil.jPacket2Arr(destAddress, this.myPrivateAddress,
-                            seqNumber++, DOES_NOT_MATTER, BitUtils.setBitInByte((byte) 0, JPacketUtil.NORMAL_INDEX),
+                            repeat?seqNumber - 1: seqNumber++, DOES_NOT_MATTER, BitUtils.setBitInByte((byte) 0, JPacketUtil.NORMAL_INDEX),
                             buffer, DOES_NOT_MATTER);
                 }
 
@@ -156,9 +162,18 @@ public class Rover {
                 LOGGER.info("Sent the packet, Waiting for ACK\n");
 
                 JPacket recvdJPacket;
+                udpAckSocket.setSoTimeout(ACK_WAIT_TIMEOUT);
                 do {
                     packet = new DatagramPacket(recvBuffer, recvBuffer.length);
-                    udpAckSocket.receive(packet);
+                    try {
+                        udpAckSocket.receive(packet);
+                    }
+                    catch (SocketTimeoutException e){
+                        LOGGER.info("ACK wait timer timed out");
+                        repeat = true;
+                         break;
+                    }
+                    repeat = false;
                     actualPacket = Arrays.copyOfRange(recvBuffer, 0, packet.getLength());
                     recvdJPacket = JPacketUtil.arr2JPacket(actualPacket);
                 } while (!JPacketUtil.isBitSet(recvdJPacket.flags, JPacketUtil.ACK_INDEX) && recvdJPacket.ackNumber != seqNumber);
@@ -207,9 +222,14 @@ public class Rover {
                             BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
                             new byte[0], DOES_NOT_MATTER);
 
+//                    try{
+//                        Thread.sleep(12000);
+//                    }catch(InterruptedException e){
+//                        e.printStackTrace();
+//                    }
+
                     udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
                             routingTable.get(jPacket.sourceAddress).nextHop, UDP_ACK_PORT));
-
 
                 } else if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX)) {
                     assert jPacket.payload != null;
@@ -218,6 +238,12 @@ public class Rover {
                             jPacket.seqNumber + 1,
                             BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
                             new byte[0], DOES_NOT_MATTER);
+
+//                    try{
+//                        Thread.sleep(12000);
+//                    }catch(InterruptedException e){
+//                        e.printStackTrace();
+//                    }
 
                     udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
                             routingTable.get(jPacket.sourceAddress).nextHop, UDP_ACK_PORT));
