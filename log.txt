@@ -9,3 +9,5 @@ iptables -A INPUT -s 172.17.0. -j DROP
 head -c 10 /dev/urandom  > temp_file
 
 java Rover --port 52220 --multicastIp 233.0.0.0 --id 10 --file ../temp_file --dest 10.1.2.3
+
+iptables -A INPUT -m statistic --mode random --probability 0.01 -p tcp --destination-port 110 -i eth0 -j DROP
