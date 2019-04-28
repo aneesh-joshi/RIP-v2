@@ -192,7 +192,7 @@ public class Rover {
         DatagramPacket packet;
         byte[] buffer = new byte[MAX_READ_WINDOW];
         byte[] actualPacket;
-        int totalFileSize = 0;
+        int totalFileSize = 0, prevSequenceNumber = -1;
 
         try {
             while (true) {
@@ -209,15 +209,23 @@ public class Rover {
                 System.out.println("\n~~~~~~~~~~~~~~");
 
 
+                // No need to check for ACK since it'll be sent to the ACK socket, not the data transfer socket
                 if (!jPacket.destAddress.equals(myPrivateAddress)) {
                     udpSocket.send(
                             new DatagramPacket(actualPacket, actualPacket.length,
                                     routingTable.get(jPacket.destAddress).nextHop,
                                     (routingTable.get(jPacket.destAddress).metric == 1 &&
-                                            JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX) )? UDP_ACK_PORT : UDP_PORT));
+                                            JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) ? UDP_ACK_PORT : UDP_PORT));
 
                     System.out.println("Not meant for me. Sent it to " + routingTable.get(jPacket.destAddress).nextHop);
+                    continue;
+                }
 
+                // drop packet if:
+                // 1. It's a SYN and we're not expecting a SYN
+                // 2. It's a normal packet and we're not expecting that sequence number
+                if ((JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX) && jPacket.seqNumber != prevSequenceNumber + 1) ||
+                        (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX) && prevSequenceNumber != 0)){
                     continue;
                 }
 
@@ -262,6 +270,8 @@ public class Rover {
                             routingTable.get(jPacket.sourceAddress).nextHop,
                             routingTable.get(jPacket.sourceAddress).metric == 1 ? UDP_ACK_PORT : UDP_PORT));
                 }
+
+                prevSequenceNumber += 1;
 
 
                 if (totalFileSize == 0 && !JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) {
