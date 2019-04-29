@@ -9,10 +9,18 @@ import java.util.Arrays;
 public class JPacketUtil {
 
     final static int ACK_INDEX = 0,
-                            SYN_INDEX = 1,
-                            NORMAL_INDEX = 2;
+            SYN_INDEX = 1,
+            NORMAL_INDEX = 2;
 
-
+    /**
+     * @param srcAddress the source of the JPacket
+     * @param seqNumber  the sequence number of the JPacket
+     * @param ackNumber  the acknowledgement number of the JPacket
+     * @param flags      the flags of the JPacket
+     * @param payload    the payload being carried by the JPacket
+     * @param totalSize  the total size of the file to be transferred
+     * @return the byte array packet representation of the JPacket
+     */
     static byte[] jPacket2Arr(InetAddress destAddress, InetAddress srcAddress, int seqNumber, int ackNumber, byte flags,
                               byte[] payload, int totalSize) {
         return jPacket2Arr(new JPacket(destAddress, srcAddress, seqNumber, ackNumber, flags, payload, totalSize));
@@ -60,7 +68,7 @@ public class JPacketUtil {
 
 
         // It's a normal packet, with only a payload
-        if(isBitSet(jPacket.flags, NORMAL_INDEX)){
+        if (isBitSet(jPacket.flags, NORMAL_INDEX)) {
             byte[] seqNumber = ByteBuffer.allocate(4).putInt(jPacket.seqNumber).array();
 
             packet[index++] = seqNumber[0];
@@ -76,8 +84,7 @@ public class JPacketUtil {
             packet[index++] = ackNumber[1];
             packet[index++] = ackNumber[2];
             packet[index++] = ackNumber[3];
-        }
-        else { // If it's not an ACK, it'll definitely have a payload
+        } else { // If it's not an ACK, it'll definitely have a payload
             for (int payLoadIndex = 0; payLoadIndex < jPacket.payload.length; payLoadIndex++) {
                 packet[index++] = jPacket.payload[payLoadIndex];
             }
@@ -100,7 +107,7 @@ public class JPacketUtil {
         jPacket.flags = packet[index++];
 
         // Add the length field
-        if(isBitSet(jPacket.flags, SYN_INDEX)){
+        if (isBitSet(jPacket.flags, SYN_INDEX)) {
             byte[] temp = Arrays.copyOfRange(packet, index, index + 4);
             index += 4;
             jPacket.totalSize = ByteBuffer.wrap(temp).getInt();
@@ -129,13 +136,13 @@ public class JPacketUtil {
             jPacket.ackNumber = ByteBuffer.wrap(ackNumber).getInt();
         }
 
-        if(isBitSet(jPacket.flags, NORMAL_INDEX)){
+        if (isBitSet(jPacket.flags, NORMAL_INDEX)) {
             byte[] seqNumber = Arrays.copyOfRange(packet, index, index + 4);
             index += 4;
             jPacket.seqNumber = ByteBuffer.wrap(seqNumber).getInt();
         }
 
-        if(!isBitSet(jPacket.flags, ACK_INDEX)){
+        if (!isBitSet(jPacket.flags, ACK_INDEX)) {
             jPacket.payload = Arrays.copyOfRange(packet, index, packet.length);
         }
 
@@ -153,11 +160,16 @@ public class JPacketUtil {
         return (byteToCheck & (1 << bitIndex)) != 0;
     }
 
+    /**
+     * Driver program which tests the class
+     * @param args optional user args
+     * @throws UnknownHostException
+     */
     public static void main(String[] args) throws UnknownHostException {
 
         // Test 1 : Send an ACK
         JPacket jPacket = new JPacket(InetAddress.getByName("10.7.2.65"), InetAddress.getByName("10.54.63.23"),
-                152, 19, BitUtils.setBitInByte((byte)0,  ACK_INDEX), new byte[0], 0);
+                152, 19, BitUtils.setBitInByte((byte) 0, ACK_INDEX), new byte[0], 0);
         System.out.println(jPacket);
 
         byte[] arr = jPacket2Arr(jPacket);
@@ -182,11 +194,17 @@ public class JPacketUtil {
 
     }
 
+    /**
+     * Utility which checks if the flag is set. (Just for testing, can be ignored)
+     * @param payload the payload of the packet
+     * @param synIndex the index of the flags where SYN should be set
+     * @throws UnknownHostException
+     */
     private static void checkFlag(byte[] payload, int synIndex) throws UnknownHostException {
         JPacket jPacket;
         byte[] arr;
         jPacket = new JPacket(InetAddress.getByName("10.7.2.65"), InetAddress.getByName("10.54.63.23"),
-                152, 19, BitUtils.setBitInByte((byte)0, synIndex), payload, payload.length);
+                152, 19, BitUtils.setBitInByte((byte) 0, synIndex), payload, payload.length);
         System.out.println(jPacket);
 
         arr = jPacket2Arr(jPacket);

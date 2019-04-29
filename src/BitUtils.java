@@ -1,4 +1,12 @@
+/**
+ * Utility class for handling common bit wise operations
+ */
 class BitUtils {
+    /**
+     * Returns a string of the bits in a byte
+     * @param byteToRepresent the byte to be represented
+     * @return string of the bits in a byte
+     */
     static String byteBitRepresentation(byte byteToRepresent){
         StringBuilder res = new StringBuilder();
         int bitVector = 1;
@@ -33,6 +41,12 @@ class BitUtils {
         return res.toString();
     }
 
+    /**
+     * Sets the given bit in the byte and returns it
+     * @param b the byte to be changed
+     * @param index the index in the byte
+     * @return a new byte like `b` but with the given bit set
+     */
     static byte setBitInByte(byte b, int index){
         return (byte) (b | 1 << index);
     }

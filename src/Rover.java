@@ -42,6 +42,7 @@ public class Rover {
     private final static byte RIP_REQUEST = 1,
             RIP_UPDATE = 2,
             SUBNET_MASK = 24;
+    private final static String OUTPUT_FILENAME = "OUTPUT_FILE";
     private Map<InetAddress, InetAddress> privateToPublicAddresCache;
 
 
@@ -67,7 +68,7 @@ public class Rover {
         myPrivateAddress = idToPrivateIp(id);
 
         LOGGER.info("Rover: " + id + " has a public IP address of " + myPublicAddress + " and a private address of " +
-                myPrivateAddress + " and will be sending the file " + fileToSend + " to " + this.destAddress);
+                myPrivateAddress + ((fileToSend == null) ? "" : " and will be sending the file " + fileToSend + " to " + this.destAddress));
         socket = new MulticastSocket(multicastPort);
         group = multicastIP;
         socket.joinGroup(group);
@@ -85,7 +86,7 @@ public class Rover {
             }
         };
         Timer routeUpdateTimer = new Timer("RIP Route Update Timer");
-        routeUpdateTimer.scheduleAtFixedRate(timerTask, 0, 5 * 1000);
+        routeUpdateTimer.scheduleAtFixedRate(timerTask, 0, ROUTE_UPDATE_TIME * 1000);
 
         // Listen for updates from other rovers
         new Thread(() -> {
@@ -97,10 +98,7 @@ public class Rover {
             }
         }).start();
 
-
-        // TODO add check for if file needs to be sent
         if (destAddress != null) {
-
             new Thread(this::sendFile).start();
         }
 
@@ -108,22 +106,24 @@ public class Rover {
 
     }
 
+    /**
+     * Sends the file mentioned in the constructor.
+     */
     private void sendFile() {
         try {
-            Thread.sleep(WAIT_TIME_BEFORE_TRANSFER * 1000); // TODO make this timer task
-
+            // wait for paths to normalize before sending the packet
+            Thread.sleep(WAIT_TIME_BEFORE_TRANSFER * 1000);
             while (!routingTable.containsKey(destAddress)) {
                 LOGGER.info("No entry for " + destAddress + ". Waiting for " + WAIT_TIME_TILL_ROUTE_APPEARS + " seconds.");
-                Thread.sleep(WAIT_TIME_TILL_ROUTE_APPEARS * 1000); // TODO make this timer task
+                Thread.sleep(WAIT_TIME_TILL_ROUTE_APPEARS * 1000);
             }
 
+            // Initialize needed variables
             long totalSize = new File(fileToSend).length();
-
             BufferedInputStream bufferedInputStream = new BufferedInputStream(new FileInputStream(fileToSend));
             byte[] buffer = new byte[MAX_PAYLOAD_SIZE];
             byte[] recvBuffer = new byte[MAX_PAYLOAD_SIZE];
             DatagramPacket packet;
-
             int bytesRead = 0;
             byte[] packetToSend, actualPacket;
             int seqNumber = 1;
@@ -140,7 +140,6 @@ public class Rover {
                 if (bytesRead < MAX_PAYLOAD_SIZE) {
                     buffer = Arrays.copyOf(buffer, bytesRead);
                     LOGGER.info("Resized the buffer to " + buffer.length);
-//                    System.exit(100);
                 }
 
                 if (!synSent) {
@@ -188,7 +187,7 @@ public class Rover {
     }
 
     /**
-     * Listens for file transfer and processes as its own or forwards
+     * Listens for file transfer and processes if it's its own or forwards
      */
     private void listenForFileTransfer() {
         DatagramPacket packet;
@@ -196,20 +195,18 @@ public class Rover {
         byte[] actualPacket;
         int totalFileSize = 0, prevSequenceNumber = 0;
 
-        try(FileOutputStream fileOutputStream = new FileOutputStream("OUTPUT_FILE_")) {
+        try (FileOutputStream fileOutputStream = new FileOutputStream(OUTPUT_FILENAME)) {
             while (true) {
                 packet = new DatagramPacket(buffer, buffer.length);
                 udpSocket.receive(packet);
 
                 actualPacket = Arrays.copyOfRange(buffer, 0, packet.getLength());
-
                 JPacket jPacket = JPacketUtil.arr2JPacket(actualPacket);
 
 
                 LOGGER.info("Got this packet\n");
                 System.out.println(jPacket);
                 System.out.println("\n~~~~~~~~~~~~~~");
-
 
                 // No need to check for ACK since it'll be sent to the ACK socket, not the data transfer socket
                 if (!jPacket.destAddress.equals(myPrivateAddress)) {
@@ -227,48 +224,27 @@ public class Rover {
                 // 1. It's a SYN and we're not expecting a SYN
                 // 2. It's a normal packet and we're not expecting that sequence number
                 if ((JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX) && jPacket.seqNumber != prevSequenceNumber) ||
-                    (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX) && prevSequenceNumber != 0)){
+                        (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX) && prevSequenceNumber != 0)) {
                     continue;
                 }
 
                 if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX)) {
                     assert jPacket.payload != null;
                     totalFileSize = jPacket.totalSize - jPacket.payload.length;
-
-                    System.out.println("\n\n TOTAL file size set to " + totalFileSize + "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
-//                    System.exit(1234);
-
-                    byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
-                            jPacket.seqNumber + 1,
-                            BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
-                            new byte[0], DOES_NOT_MATTER);
-
-                    System.out.println("Sending ACK to " + routingTable.get(jPacket.sourceAddress).nextHop);
-                    udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
-                            routingTable.get(jPacket.sourceAddress).nextHop,
-                            routingTable.get(jPacket.sourceAddress).metric == 1 ? UDP_ACK_PORT : UDP_PORT));
+                    sendAckForPacket(jPacket);
 
                 } else if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX)) {
                     assert jPacket.payload != null;
                     totalFileSize -= jPacket.payload.length;
-                    byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
-                            jPacket.seqNumber + 1,
-                            BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
-                            new byte[0], DOES_NOT_MATTER);
-
-
-                    System.out.println("Sending ACK to " + routingTable.get(jPacket.sourceAddress).nextHop);
-                    udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
-                            routingTable.get(jPacket.sourceAddress).nextHop,
-                            routingTable.get(jPacket.sourceAddress).metric == 1 ? UDP_ACK_PORT : UDP_PORT));
+                    sendAckForPacket(jPacket);
                 }
 
                 prevSequenceNumber += 1;
                 fileOutputStream.write(jPacket.payload);
-                System.out.println("Total file size is " + totalFileSize);
+                System.out.println("Remaining file to be received is " + totalFileSize);
 
                 if (totalFileSize == 0 && !JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) {
-                    System.out.println("FILE FULLY RECEIVED --============================");
+                    System.out.println("FILE FULLY RECEIVED. Saved as 'OUTPUT_FILE' ============================");
                     fileOutputStream.close();
                     System.exit(42);
                 }
@@ -278,6 +254,23 @@ public class Rover {
             e.printStackTrace();
             System.exit(42);
         }
+    }
+
+    /**
+     * Sends an ACK for the given jPacket
+     * @param jPacket the packet which needs to be acknowledged
+     * @throws IOException
+     */
+    private void sendAckForPacket(JPacket jPacket) throws IOException {
+        byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
+                jPacket.seqNumber + 1,
+                BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
+                new byte[0], DOES_NOT_MATTER);
+
+        System.out.println("Sending ACK to " + routingTable.get(jPacket.sourceAddress).nextHop);
+        udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
+                routingTable.get(jPacket.sourceAddress).nextHop,
+                routingTable.get(jPacket.sourceAddress).metric == 1 ? UDP_ACK_PORT : UDP_PORT));
     }
 
     /**
@@ -328,8 +321,6 @@ public class Rover {
         }
 
         boolean updateHappened = !oldRoutingTableString.equals(routingTable.toString());
-//        System.out.println("toString looks like "  + oldRoutingTableString);
-        // Send an update if
         if (updateHappened) {
             LOGGER.info(myPrivateAddress + "'s table was updated from received entries. New table is ->\n" + getStringRoutingTable() + "\n");
             sendRIPUpdate();
@@ -475,7 +466,8 @@ public class Rover {
     public static void main(String[] args) throws IOException {
         ArgumentParser argsParser = new ArgumentParser(args);
         if (argsParser.success) {
-            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress, argsParser.fileToSend, argsParser.destAddress);
+            new Rover(argsParser.roverId, argsParser.multicastPort, argsParser.multicastAddress, argsParser.fileToSend,
+                    argsParser.destAddress);
         }
     }
 }
