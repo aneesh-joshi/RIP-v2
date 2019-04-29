@@ -23,21 +23,22 @@ public class Rover {
 
 
     private final static Logger LOGGER = Logger.getLogger("ROVER");
-    private final static int LISTEN_WINDOW = 1024,
+    private final static int
+            RIP_LISTEN_WINDOW = 1024,
             ROUTE_UPDATE_TIME = 5,
             ROUTE_DELAY_TIME = 1,
             ROVER_OFFLINE_TIME_LIMIT = 10, // Time to wait before considering a rover to be dead
             ROVER_OFFLINE_TIMER_START_DELAY = 5,
-            MAX_READ_WINDOW = 1024,
+            FILE_TRANSFER_MAX_READ_WINDOW = 6000,
             DOES_NOT_MATTER = 0,
             WAIT_TIME_BEFORE_TRANSFER = 3, // Time to wait before transferring the file
             INFINITY = 16,
-            UDP_PORT = 5353,
+            UDP_PORT = 6161,
             UDP_ACK_PORT = 5454,
-            ACK_WAIT_TIMEOUT = 5000,
+            ACK_WAIT_TIMEOUT = 1000,
             WAIT_TIME_TILL_ROUTE_APPEARS = 5, // Time to wait before checking if the route to the destination rover is up
             MAX_HEADER_SIZE = 10, // The maximum data a header can take (never listen for a packet smaller than this)
-            MAX_PAYLOAD_SIZE = 100; // The chunks in which the data will be sent
+            MAX_PAYLOAD_SIZE = 5000; // The chunks in which the data will be sent
     private final static byte RIP_REQUEST = 1,
             RIP_UPDATE = 2,
             SUBNET_MASK = 24;
@@ -139,6 +140,7 @@ public class Rover {
                 if (bytesRead < MAX_PAYLOAD_SIZE) {
                     buffer = Arrays.copyOf(buffer, bytesRead);
                     LOGGER.info("Resized the buffer to " + buffer.length);
+//                    System.exit(100);
                 }
 
                 if (!synSent) {
@@ -190,11 +192,11 @@ public class Rover {
      */
     private void listenForFileTransfer() {
         DatagramPacket packet;
-        byte[] buffer = new byte[MAX_READ_WINDOW];
+        byte[] buffer = new byte[FILE_TRANSFER_MAX_READ_WINDOW];
         byte[] actualPacket;
         int totalFileSize = 0, prevSequenceNumber = 0;
 
-        try {
+        try(FileOutputStream fileOutputStream = new FileOutputStream("OUTPUT_FILE_")) {
             while (true) {
                 packet = new DatagramPacket(buffer, buffer.length);
                 udpSocket.receive(packet);
@@ -262,11 +264,13 @@ public class Rover {
                 }
 
                 prevSequenceNumber += 1;
-
+                fileOutputStream.write(jPacket.payload);
                 System.out.println("Total file size is " + totalFileSize);
 
                 if (totalFileSize == 0 && !JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) {
                     System.out.println("FILE FULLY RECEIVED --============================");
+                    fileOutputStream.close();
+                    System.exit(42);
                 }
 
             }
@@ -359,7 +363,7 @@ public class Rover {
      * @throws IOException
      */
     private void listenMulticast() throws IOException {
-        byte[] buf = new byte[LISTEN_WINDOW];
+        byte[] buf = new byte[RIP_LISTEN_WINDOW];
         while (true) {
             DatagramPacket packet = new DatagramPacket(buf, buf.length);
             socket.receive(packet);

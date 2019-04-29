@@ -43,7 +43,7 @@ public class JPacket {
 
         if(payload != null) {
             res.append("Payload size ").append(payload.length).append("\n");
-            res.append("Payload is ").append(payload.length == 0 ? "empty" : "\n" + BitUtils.getHexDump(payload)).append("\n");
+//            res.append("Payload is ").append(payload.length == 0 ? "empty" : "\n" + BitUtils.getHexDump(payload)).append("\n");
         }
         return res.toString();
     }
