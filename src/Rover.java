@@ -192,7 +192,7 @@ public class Rover {
         DatagramPacket packet;
         byte[] buffer = new byte[MAX_READ_WINDOW];
         byte[] actualPacket;
-        int totalFileSize = 0, prevSequenceNumber = -1;
+        int totalFileSize = 0, prevSequenceNumber = 0;
 
         try {
             while (true) {
@@ -224,27 +224,22 @@ public class Rover {
                 // drop packet if:
                 // 1. It's a SYN and we're not expecting a SYN
                 // 2. It's a normal packet and we're not expecting that sequence number
-                if ((JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX) && jPacket.seqNumber != prevSequenceNumber + 1) ||
-                        (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX) && prevSequenceNumber != 0)){
+                if ((JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.NORMAL_INDEX) && jPacket.seqNumber != prevSequenceNumber) ||
+                    (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX) && prevSequenceNumber != 0)){
                     continue;
                 }
 
-                if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) {
-                    assert 1 == 2; // TODO remove
-                    System.out.println("Got an ACK from " + jPacket.sourceAddress);
-                } else if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX)) {
+                if (JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.SYN_INDEX)) {
                     assert jPacket.payload != null;
                     totalFileSize = jPacket.totalSize - jPacket.payload.length;
+
+                    System.out.println("\n\n TOTAL file size set to " + totalFileSize + "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+//                    System.exit(1234);
+
                     byte[] ackPacket = JPacketUtil.jPacket2Arr(jPacket.sourceAddress, myPrivateAddress, DOES_NOT_MATTER,
                             jPacket.seqNumber + 1,
                             BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
                             new byte[0], DOES_NOT_MATTER);
-
-//                    try{
-//                        Thread.sleep(12000);
-//                    }catch(InterruptedException e){
-//                        e.printStackTrace();
-//                    }
 
                     System.out.println("Sending ACK to " + routingTable.get(jPacket.sourceAddress).nextHop);
                     udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
@@ -259,11 +254,6 @@ public class Rover {
                             BitUtils.setBitInByte((byte) 0, JPacketUtil.ACK_INDEX),
                             new byte[0], DOES_NOT_MATTER);
 
-//                    try{
-//                        Thread.sleep(12000);
-//                    }catch(InterruptedException e){
-//                        e.printStackTrace();
-//                    }
 
                     System.out.println("Sending ACK to " + routingTable.get(jPacket.sourceAddress).nextHop);
                     udpSocket.send(new DatagramPacket(ackPacket, ackPacket.length,
@@ -273,6 +263,7 @@ public class Rover {
 
                 prevSequenceNumber += 1;
 
+                System.out.println("Total file size is " + totalFileSize);
 
                 if (totalFileSize == 0 && !JPacketUtil.isBitSet(jPacket.flags, JPacketUtil.ACK_INDEX)) {
                     System.out.println("FILE FULLY RECEIVED --============================");
